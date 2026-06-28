@@ -52,7 +52,13 @@ export const monsterTextureKeys: Record<MonsterKind, string> = {
   "tide-watcher": "monster_tide_watcher",
   "warehouse-rat": "monster_warehouse_rat",
   "mist-puppet": "monster_mist_puppet",
-  "warehouse-sentry": "monster_warehouse_sentry"
+  "warehouse-sentry": "monster_warehouse_sentry",
+  "cave-crab": "monster_cave_crab",
+  "reef-wisp": "monster_reef_wisp",
+  "coral-warden": "monster_coral_warden",
+  "archive-drifter": "monster_archive_drifter",
+  "ink-sprite": "monster_ink_sprite",
+  "archive-guardian": "monster_archive_guardian"
 };
 
 export const monsterAnimationKeys: Record<MonsterKind, string> = {
@@ -61,7 +67,13 @@ export const monsterAnimationKeys: Record<MonsterKind, string> = {
   "tide-watcher": "anim_monster_tide_watcher_idle",
   "warehouse-rat": "anim_monster_warehouse_rat_idle",
   "mist-puppet": "anim_monster_mist_puppet_idle",
-  "warehouse-sentry": "anim_monster_warehouse_sentry_idle"
+  "warehouse-sentry": "anim_monster_warehouse_sentry_idle",
+  "cave-crab": "anim_monster_cave_crab_idle",
+  "reef-wisp": "anim_monster_reef_wisp_idle",
+  "coral-warden": "anim_monster_coral_warden_idle",
+  "archive-drifter": "anim_monster_archive_drifter_idle",
+  "ink-sprite": "anim_monster_ink_sprite_idle",
+  "archive-guardian": "anim_monster_archive_guardian_idle"
 };
 
 export const platformTextureKey = "tile_harbor_platform";
@@ -85,6 +97,18 @@ export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
     { key: "bg_fog_harbor_far", y: 246, height: 220, scrollFactor: 0.35, alpha: 0.9, depth: -55 },
     { key: "bg_fog_harbor_buildings_back", y: 320, height: 230, scrollFactor: 0.5, alpha: 0.92, depth: -50 },
     { key: "bg_fog_harbor_buildings_mid", y: 408, height: 260, scrollFactor: 0.78, alpha: 0.9, depth: -45 }
+  ],
+  "coral-tide-cavern": [
+    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.16, alpha: 0.82, depth: -60 },
+    { key: "bg_mist_breakwater_far", y: 248, height: 230, scrollFactor: 0.28, alpha: 0.78, depth: -55 },
+    { key: "bg_mist_breakwater_harbor_back", y: 338, height: 250, scrollFactor: 0.45, alpha: 0.72, depth: -50 },
+    { key: "bg_mist_breakwater_harbor_mid", y: 424, height: 260, scrollFactor: 0.72, alpha: 0.68, depth: -45 }
+  ],
+  "sunken-archive": [
+    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.14, alpha: 0.76, depth: -60 },
+    { key: "bg_mist_breakwater_far", y: 250, height: 230, scrollFactor: 0.24, alpha: 0.72, depth: -55 },
+    { key: "bg_fog_harbor_buildings_back", y: 340, height: 250, scrollFactor: 0.42, alpha: 0.62, depth: -50 },
+    { key: "bg_fog_harbor_buildings_mid", y: 426, height: 260, scrollFactor: 0.7, alpha: 0.58, depth: -45 }
   ]
 };
 

@@ -105,7 +105,20 @@ const equipmentDropChances: Partial<Record<ItemId, number>> = {
   "cloth-vest": 0.24,
   "harbor-dagger": 0.12,
   "patched-jacket": 0.16,
-  "warehouse-talisman": 0.08
+  "warehouse-talisman": 0.08,
+  "reef-blade": 0.08,
+  "coral-coat": 0.07,
+  "archive-wand": 0.06,
+  "scholar-robe": 0.06
+};
+const equipmentDropMapRestrictions: Partial<Record<ItemId, MapId>> = {
+  "harbor-dagger": "old-harbor-warehouse",
+  "patched-jacket": "old-harbor-warehouse",
+  "warehouse-talisman": "old-harbor-warehouse",
+  "reef-blade": "coral-tide-cavern",
+  "coral-coat": "coral-tide-cavern",
+  "archive-wand": "sunken-archive",
+  "scholar-robe": "sunken-archive"
 };
 const equipmentDropChanceMultiplier = Number.parseFloat(process.env.EQUIPMENT_DROP_CHANCE_MULTIPLIER ?? "1");
 const characterClasses = new Set<CharacterClass>(["swordsman", "talisman", "hunter"]);
@@ -1735,14 +1748,15 @@ function createItemDrop(itemId: ItemId, quantity: number, mapId: MapId, x: numbe
 
 function createEquipmentDrops(mapId: MapId, x: number, y: number) {
   for (const [itemId, chance] of Object.entries(equipmentDropChances) as [ItemId, number][]) {
-    const oldWarehouseItem = itemId === "harbor-dagger" || itemId === "patched-jacket" || itemId === "warehouse-talisman";
-    if (oldWarehouseItem && mapId !== "old-harbor-warehouse") {
+    const restrictedMapId = equipmentDropMapRestrictions[itemId];
+    if (restrictedMapId && mapId !== restrictedMapId) {
       continue;
     }
 
     const adjustedChance = Math.min(1, chance * equipmentDropChanceMultiplier);
     if (Math.random() <= adjustedChance) {
-      const offsetX = itemId === "training-sword" || itemId === "harbor-dagger" ? -28 : 56;
+      const offsetX =
+        itemId === "training-sword" || itemId === "harbor-dagger" || itemId === "reef-blade" || itemId === "archive-wand" ? -28 : 56;
       createItemDrop(itemId, 1, mapId, x + offsetX, y);
     }
   }
@@ -1777,6 +1791,34 @@ function createMonsterDrops(monster: MonsterSnapshot) {
   if (monster.kind === "warehouse-sentry") {
     createItemDrop("damp-wood", 2, monster.mapId, monster.x + 32, monster.y);
     createItemDrop("warehouse-cloth", 1, monster.mapId, monster.x - 28, monster.y);
+  }
+
+  if (monster.kind === "cave-crab") {
+    createItemDrop("crab-shell", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "reef-wisp") {
+    createItemDrop("reef-spark", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "coral-warden") {
+    createItemDrop("coral-key", 1, monster.mapId, monster.x + 32, monster.y);
+    createItemDrop("reef-spark", 1, monster.mapId, monster.x - 28, monster.y);
+    createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x + 68, monster.y);
+  }
+
+  if (monster.kind === "archive-drifter") {
+    createItemDrop("salted-page", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "ink-sprite") {
+    createItemDrop("ink-core", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "archive-guardian") {
+    createItemDrop("archive-seal", 1, monster.mapId, monster.x + 32, monster.y);
+    createItemDrop("ink-core", 1, monster.mapId, monster.x - 28, monster.y);
+    createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x + 68, monster.y);
   }
 
   createEquipmentDrops(monster.mapId, monster.x, monster.y);

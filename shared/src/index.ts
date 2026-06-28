@@ -8,7 +8,12 @@ export type SkillId = "sword-cleave" | "spirit-talisman" | "hunter-shot" | "spir
 
 export type EquipmentSlot = "weapon" | "armor";
 
-export type MapId = "fog-harbor-test" | "mist-breakwater" | "old-harbor-warehouse";
+export type MapId =
+  | "fog-harbor-test"
+  | "mist-breakwater"
+  | "old-harbor-warehouse"
+  | "coral-tide-cavern"
+  | "sunken-archive";
 
 export interface PlayerSnapshot {
   id: string;
@@ -32,7 +37,19 @@ export interface PlayerSnapshot {
   updatedAt: number;
 }
 
-export type MonsterKind = "field-rat" | "mist-slime" | "tide-watcher" | "warehouse-rat" | "mist-puppet" | "warehouse-sentry";
+export type MonsterKind =
+  | "field-rat"
+  | "mist-slime"
+  | "tide-watcher"
+  | "warehouse-rat"
+  | "mist-puppet"
+  | "warehouse-sentry"
+  | "cave-crab"
+  | "reef-wisp"
+  | "coral-warden"
+  | "archive-drifter"
+  | "ink-sprite"
+  | "archive-guardian";
 
 export const MONSTER_KIND_NAMES: Record<MonsterKind, string> = {
   "field-rat": "田鼠",
@@ -40,7 +57,13 @@ export const MONSTER_KIND_NAMES: Record<MonsterKind, string> = {
   "tide-watcher": "潮眼守衛",
   "warehouse-rat": "倉鼠",
   "mist-puppet": "霧化木偶",
-  "warehouse-sentry": "倉庫巡弋者"
+  "warehouse-sentry": "倉庫巡弋者",
+  "cave-crab": "潮洞蟹",
+  "reef-wisp": "礁光幽影",
+  "coral-warden": "珊瑚守望者",
+  "archive-drifter": "沉船漂書",
+  "ink-sprite": "墨潮精靈",
+  "archive-guardian": "書庫守衛"
 };
 
 export interface MonsterSnapshot {
@@ -67,11 +90,21 @@ export type ItemId =
   | "watcher-shell"
   | "warehouse-cloth"
   | "damp-wood"
+  | "crab-shell"
+  | "reef-spark"
+  | "coral-key"
+  | "salted-page"
+  | "ink-core"
+  | "archive-seal"
   | "training-sword"
   | "cloth-vest"
   | "harbor-dagger"
   | "patched-jacket"
-  | "warehouse-talisman";
+  | "warehouse-talisman"
+  | "reef-blade"
+  | "coral-coat"
+  | "archive-wand"
+  | "scholar-robe";
 
 export interface ItemDefinition {
   id: ItemId;
@@ -178,6 +211,42 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "material",
     maxStack: 50
   },
+  "crab-shell": {
+    id: "crab-shell",
+    name: "潮洞蟹殼",
+    kind: "material",
+    maxStack: 50
+  },
+  "reef-spark": {
+    id: "reef-spark",
+    name: "礁光碎晶",
+    kind: "material",
+    maxStack: 50
+  },
+  "coral-key": {
+    id: "coral-key",
+    name: "珊瑚潮鑰",
+    kind: "material",
+    maxStack: 10
+  },
+  "salted-page": {
+    id: "salted-page",
+    name: "鹽漬書頁",
+    kind: "material",
+    maxStack: 50
+  },
+  "ink-core": {
+    id: "ink-core",
+    name: "墨潮核心",
+    kind: "material",
+    maxStack: 30
+  },
+  "archive-seal": {
+    id: "archive-seal",
+    name: "書庫封印",
+    kind: "material",
+    maxStack: 10
+  },
   "training-sword": {
     id: "training-sword",
     name: "練習木劍",
@@ -217,6 +286,38 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     maxStack: 1,
     equipmentSlot: "armor",
     defenseBonus: 9
+  },
+  "reef-blade": {
+    id: "reef-blade",
+    name: "礁光短刃",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "weapon",
+    attackBonus: 15
+  },
+  "coral-coat": {
+    id: "coral-coat",
+    name: "珊瑚護衣",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "armor",
+    defenseBonus: 12
+  },
+  "archive-wand": {
+    id: "archive-wand",
+    name: "潮墨法杖",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "weapon",
+    attackBonus: 20
+  },
+  "scholar-robe": {
+    id: "scholar-robe",
+    name: "書庫學袍",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "armor",
+    defenseBonus: 16
   }
 };
 
@@ -257,7 +358,7 @@ export interface PortalData {
   targetY: number;
 }
 
-export type MapInteractableKind = "lantern" | "tide-gauge";
+export type MapInteractableKind = "lantern" | "tide-gauge" | "seal" | "tablet";
 
 export interface MapInteractableData {
   id: string;
@@ -328,7 +429,7 @@ export interface QuestDefinition {
   targetCount: number;
   rewardExp: number;
   rewardGold: number;
-  chapterId?: "chapter-1" | "warehouse";
+  chapterId?: "chapter-1" | "warehouse" | "cavern" | "archive";
   prerequisiteQuestIds?: string[];
 }
 
@@ -533,6 +634,170 @@ export const WAREHOUSE_SENTRY_QUEST: QuestDefinition = {
   prerequisiteQuestIds: ["mist-puppet-clear"]
 };
 
+export const CAVERN_CRAB_QUEST: QuestDefinition = {
+  id: "cavern-crab-clear",
+  title: "清理潮洞蟹群",
+  npcId: "cavern-scholar",
+  objective: {
+    type: "kill",
+    targetKind: "cave-crab",
+    targetCount: 4
+  },
+  targetCount: 4,
+  rewardExp: 140,
+  rewardGold: 80,
+  chapterId: "cavern",
+  prerequisiteQuestIds: ["warehouse-sentry-core"]
+};
+
+export const REEF_SPARK_QUEST: QuestDefinition = {
+  id: "reef-spark-sample",
+  title: "收集礁光碎晶",
+  npcId: "cavern-scholar",
+  objective: {
+    type: "collect",
+    itemId: "reef-spark",
+    targetCount: 3,
+    consumeItems: true
+  },
+  targetCount: 3,
+  rewardExp: 155,
+  rewardGold: 90,
+  chapterId: "cavern",
+  prerequisiteQuestIds: ["cavern-crab-clear"]
+};
+
+export const REEF_SEAL_QUEST: QuestDefinition = {
+  id: "reef-seal-activate",
+  title: "啟動三處潮封印",
+  npcId: "cavern-scholar",
+  objective: {
+    type: "interact",
+    targetId: "reef-seal",
+    targetCount: 3
+  },
+  targetCount: 3,
+  rewardExp: 165,
+  rewardGold: 95,
+  chapterId: "cavern",
+  prerequisiteQuestIds: ["reef-spark-sample"]
+};
+
+export const CORAL_WARDEN_QUEST: QuestDefinition = {
+  id: "coral-warden-core",
+  title: "擊退珊瑚守望者",
+  npcId: "cavern-scholar",
+  objective: {
+    type: "kill",
+    targetKind: "coral-warden",
+    targetCount: 1
+  },
+  targetCount: 1,
+  rewardExp: 220,
+  rewardGold: 140,
+  chapterId: "cavern",
+  prerequisiteQuestIds: ["reef-seal-activate"]
+};
+
+export const CORAL_KEY_QUEST: QuestDefinition = {
+  id: "coral-key-report",
+  title: "回收珊瑚潮鑰",
+  npcId: "cavern-scholar",
+  objective: {
+    type: "collect",
+    itemId: "coral-key",
+    targetCount: 1,
+    consumeItems: true
+  },
+  targetCount: 1,
+  rewardExp: 190,
+  rewardGold: 120,
+  chapterId: "cavern",
+  prerequisiteQuestIds: ["coral-warden-core"]
+};
+
+export const ARCHIVE_DRIFTER_QUEST: QuestDefinition = {
+  id: "archive-drifter-clear",
+  title: "整理沉船漂書",
+  npcId: "archive-curator",
+  objective: {
+    type: "kill",
+    targetKind: "archive-drifter",
+    targetCount: 4
+  },
+  targetCount: 4,
+  rewardExp: 210,
+  rewardGold: 135,
+  chapterId: "archive",
+  prerequisiteQuestIds: ["coral-key-report"]
+};
+
+export const INK_CORE_QUEST: QuestDefinition = {
+  id: "ink-core-sample",
+  title: "收集墨潮核心",
+  npcId: "archive-curator",
+  objective: {
+    type: "collect",
+    itemId: "ink-core",
+    targetCount: 3,
+    consumeItems: true
+  },
+  targetCount: 3,
+  rewardExp: 230,
+  rewardGold: 145,
+  chapterId: "archive",
+  prerequisiteQuestIds: ["archive-drifter-clear"]
+};
+
+export const ARCHIVE_TABLET_QUEST: QuestDefinition = {
+  id: "archive-tablet-align",
+  title: "校準三座書庫碑",
+  npcId: "archive-curator",
+  objective: {
+    type: "interact",
+    targetId: "archive-tablet",
+    targetCount: 3
+  },
+  targetCount: 3,
+  rewardExp: 240,
+  rewardGold: 150,
+  chapterId: "archive",
+  prerequisiteQuestIds: ["ink-core-sample"]
+};
+
+export const ARCHIVE_GUARDIAN_QUEST: QuestDefinition = {
+  id: "archive-guardian-core",
+  title: "擊退書庫守衛",
+  npcId: "archive-curator",
+  objective: {
+    type: "kill",
+    targetKind: "archive-guardian",
+    targetCount: 1
+  },
+  targetCount: 1,
+  rewardExp: 300,
+  rewardGold: 180,
+  chapterId: "archive",
+  prerequisiteQuestIds: ["archive-tablet-align"]
+};
+
+export const ARCHIVE_SEAL_QUEST: QuestDefinition = {
+  id: "archive-seal-report",
+  title: "回收書庫封印",
+  npcId: "archive-curator",
+  objective: {
+    type: "collect",
+    itemId: "archive-seal",
+    targetCount: 1,
+    consumeItems: true
+  },
+  targetCount: 1,
+  rewardExp: 260,
+  rewardGold: 165,
+  chapterId: "archive",
+  prerequisiteQuestIds: ["archive-guardian-core"]
+};
+
 export const QUEST_DEFINITIONS: QuestDefinition[] = [
   FIELD_RAT_QUEST,
   RAT_TAIL_QUEST,
@@ -545,7 +810,17 @@ export const QUEST_DEFINITIONS: QuestDefinition[] = [
   WAREHOUSE_RAT_QUEST,
   DAMP_WOOD_QUEST,
   MIST_PUPPET_QUEST,
-  WAREHOUSE_SENTRY_QUEST
+  WAREHOUSE_SENTRY_QUEST,
+  CAVERN_CRAB_QUEST,
+  REEF_SPARK_QUEST,
+  REEF_SEAL_QUEST,
+  CORAL_WARDEN_QUEST,
+  CORAL_KEY_QUEST,
+  ARCHIVE_DRIFTER_QUEST,
+  INK_CORE_QUEST,
+  ARCHIVE_TABLET_QUEST,
+  ARCHIVE_GUARDIAN_QUEST,
+  ARCHIVE_SEAL_QUEST
 ];
 
 export const FOG_HARBOR_SHOP: ShopDefinition = {
@@ -1005,6 +1280,17 @@ export const OLD_HARBOR_WAREHOUSE_MAP: GameMapData = {
       targetMapId: "fog-harbor-test",
       targetX: 1325,
       targetY: 430
+    },
+    {
+      id: "to-coral-cavern",
+      name: "前往珊瑚潮洞",
+      x: 2110,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "coral-tide-cavern",
+      targetX: 145,
+      targetY: 430
     }
   ],
   interactables: [],
@@ -1105,10 +1391,363 @@ export const OLD_HARBOR_WAREHOUSE_MAP: GameMapData = {
   ]
 };
 
+export const CORAL_TIDE_CAVERN_MAP: GameMapData = {
+  id: "coral-tide-cavern",
+  name: "珊瑚潮洞",
+  width: 2400,
+  height: 560,
+  playerSpawn: {
+    x: 145,
+    y: 430
+  },
+  safeZones: [
+    {
+      id: "cavern-entry",
+      name: "潮洞入口",
+      x: 155,
+      y: 420,
+      width: 300,
+      height: 180
+    }
+  ],
+  npcs: [
+    {
+      id: "cavern-scholar",
+      name: "潮洞學者阿璇",
+      x: 235,
+      y: 466,
+      interactionRadius: 84
+    }
+  ],
+  portals: [
+    {
+      id: "to-old-warehouse",
+      name: "返回舊港倉庫",
+      x: 70,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "old-harbor-warehouse",
+      targetX: 2040,
+      targetY: 430
+    },
+    {
+      id: "to-sunken-archive",
+      name: "前往沉船書庫",
+      x: 2320,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "sunken-archive",
+      targetX: 145,
+      targetY: 430
+    }
+  ],
+  interactables: [
+    {
+      id: "reef-seal-west",
+      targetId: "reef-seal",
+      kind: "seal",
+      name: "西側潮封印",
+      prompt: "E 啟動潮封印",
+      x: 720,
+      y: 438,
+      interactionRadius: 78
+    },
+    {
+      id: "reef-seal-mid",
+      targetId: "reef-seal",
+      kind: "seal",
+      name: "中央潮封印",
+      prompt: "E 啟動潮封印",
+      x: 1240,
+      y: 382,
+      interactionRadius: 78
+    },
+    {
+      id: "reef-seal-east",
+      targetId: "reef-seal",
+      kind: "seal",
+      name: "深處潮封印",
+      prompt: "E 啟動潮封印",
+      x: 1760,
+      y: 438,
+      interactionRadius: 78
+    }
+  ],
+  platforms: [
+    { id: "ground", x: 1200, y: 506, width: 2400, height: 30 },
+    { id: "cavern-step-1", x: 510, y: 430, width: 240, height: 24 },
+    { id: "cavern-step-2", x: 790, y: 368, width: 240, height: 24 },
+    { id: "cavern-step-3", x: 1110, y: 420, width: 260, height: 24 },
+    { id: "seal-platform", x: 1240, y: 374, width: 280, height: 24 },
+    { id: "reef-bridge", x: 1535, y: 430, width: 300, height: 24 },
+    { id: "warden-platform", x: 2020, y: 430, width: 340, height: 24 }
+  ],
+  monsterSpawns: [
+    {
+      id: "cave-crab-1",
+      kind: "cave-crab",
+      mapId: "coral-tide-cavern",
+      name: "潮洞蟹",
+      x: 545,
+      y: 475,
+      maxHp: 68,
+      respawnMs: 4300,
+      expReward: 34,
+      patrolMinX: 450,
+      patrolMaxX: 660,
+      patrolSpeed: 22
+    },
+    {
+      id: "cave-crab-2",
+      kind: "cave-crab",
+      mapId: "coral-tide-cavern",
+      name: "潮洞蟹",
+      x: 845,
+      y: 337,
+      maxHp: 72,
+      respawnMs: 4500,
+      expReward: 36,
+      patrolMinX: 730,
+      patrolMaxX: 930,
+      patrolSpeed: 20
+    },
+    {
+      id: "cave-crab-3",
+      kind: "cave-crab",
+      mapId: "coral-tide-cavern",
+      name: "潮洞蟹",
+      x: 1125,
+      y: 475,
+      maxHp: 72,
+      respawnMs: 4500,
+      expReward: 36,
+      patrolMinX: 1010,
+      patrolMaxX: 1230,
+      patrolSpeed: 20
+    },
+    {
+      id: "reef-wisp-1",
+      kind: "reef-wisp",
+      mapId: "coral-tide-cavern",
+      name: "礁光幽影",
+      x: 1390,
+      y: 475,
+      maxHp: 88,
+      respawnMs: 5600,
+      expReward: 48,
+      patrolMinX: 1280,
+      patrolMaxX: 1510,
+      patrolSpeed: 18
+    },
+    {
+      id: "reef-wisp-2",
+      kind: "reef-wisp",
+      mapId: "coral-tide-cavern",
+      name: "礁光幽影",
+      x: 1660,
+      y: 475,
+      maxHp: 92,
+      respawnMs: 5800,
+      expReward: 50,
+      patrolMinX: 1540,
+      patrolMaxX: 1780,
+      patrolSpeed: 18
+    },
+    {
+      id: "coral-warden-1",
+      kind: "coral-warden",
+      mapId: "coral-tide-cavern",
+      name: "珊瑚守望者",
+      x: 2030,
+      y: 399,
+      maxHp: 260,
+      respawnMs: 16000,
+      expReward: 180,
+      patrolMinX: 1890,
+      patrolMaxX: 2170,
+      patrolSpeed: 12
+    }
+  ]
+};
+
+export const SUNKEN_ARCHIVE_MAP: GameMapData = {
+  id: "sunken-archive",
+  name: "沉船書庫",
+  width: 2600,
+  height: 560,
+  playerSpawn: {
+    x: 145,
+    y: 430
+  },
+  safeZones: [
+    {
+      id: "archive-entry",
+      name: "書庫入口",
+      x: 160,
+      y: 420,
+      width: 320,
+      height: 180
+    }
+  ],
+  npcs: [
+    {
+      id: "archive-curator",
+      name: "書庫管理員阿澈",
+      x: 250,
+      y: 466,
+      interactionRadius: 84
+    }
+  ],
+  portals: [
+    {
+      id: "to-coral-cavern",
+      name: "返回珊瑚潮洞",
+      x: 70,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "coral-tide-cavern",
+      targetX: 2260,
+      targetY: 430
+    }
+  ],
+  interactables: [
+    {
+      id: "archive-tablet-west",
+      targetId: "archive-tablet",
+      kind: "tablet",
+      name: "西側書庫碑",
+      prompt: "E 校準書庫碑",
+      x: 780,
+      y: 438,
+      interactionRadius: 78
+    },
+    {
+      id: "archive-tablet-mid",
+      targetId: "archive-tablet",
+      kind: "tablet",
+      name: "中央書庫碑",
+      prompt: "E 校準書庫碑",
+      x: 1360,
+      y: 382,
+      interactionRadius: 78
+    },
+    {
+      id: "archive-tablet-east",
+      targetId: "archive-tablet",
+      kind: "tablet",
+      name: "深處書庫碑",
+      prompt: "E 校準書庫碑",
+      x: 1900,
+      y: 438,
+      interactionRadius: 78
+    }
+  ],
+  platforms: [
+    { id: "ground", x: 1300, y: 506, width: 2600, height: 30 },
+    { id: "archive-step-1", x: 560, y: 430, width: 250, height: 24 },
+    { id: "archive-step-2", x: 850, y: 365, width: 250, height: 24 },
+    { id: "archive-step-3", x: 1160, y: 420, width: 280, height: 24 },
+    { id: "tablet-platform", x: 1360, y: 374, width: 300, height: 24 },
+    { id: "ink-bridge", x: 1660, y: 430, width: 320, height: 24 },
+    { id: "guardian-platform", x: 2220, y: 430, width: 360, height: 24 }
+  ],
+  monsterSpawns: [
+    {
+      id: "archive-drifter-1",
+      kind: "archive-drifter",
+      mapId: "sunken-archive",
+      name: "沉船漂書",
+      x: 560,
+      y: 475,
+      maxHp: 88,
+      respawnMs: 4600,
+      expReward: 46,
+      patrolMinX: 460,
+      patrolMaxX: 680,
+      patrolSpeed: 19
+    },
+    {
+      id: "archive-drifter-2",
+      kind: "archive-drifter",
+      mapId: "sunken-archive",
+      name: "沉船漂書",
+      x: 870,
+      y: 334,
+      maxHp: 92,
+      respawnMs: 4800,
+      expReward: 48,
+      patrolMinX: 760,
+      patrolMaxX: 980,
+      patrolSpeed: 18
+    },
+    {
+      id: "archive-drifter-3",
+      kind: "archive-drifter",
+      mapId: "sunken-archive",
+      name: "沉船漂書",
+      x: 1180,
+      y: 475,
+      maxHp: 92,
+      respawnMs: 4800,
+      expReward: 48,
+      patrolMinX: 1060,
+      patrolMaxX: 1300,
+      patrolSpeed: 18
+    },
+    {
+      id: "ink-sprite-1",
+      kind: "ink-sprite",
+      mapId: "sunken-archive",
+      name: "墨潮精靈",
+      x: 1500,
+      y: 475,
+      maxHp: 108,
+      respawnMs: 6200,
+      expReward: 58,
+      patrolMinX: 1380,
+      patrolMaxX: 1620,
+      patrolSpeed: 17
+    },
+    {
+      id: "ink-sprite-2",
+      kind: "ink-sprite",
+      mapId: "sunken-archive",
+      name: "墨潮精靈",
+      x: 1810,
+      y: 475,
+      maxHp: 112,
+      respawnMs: 6400,
+      expReward: 60,
+      patrolMinX: 1680,
+      patrolMaxX: 1940,
+      patrolSpeed: 16
+    },
+    {
+      id: "archive-guardian-1",
+      kind: "archive-guardian",
+      mapId: "sunken-archive",
+      name: "書庫守衛",
+      x: 2240,
+      y: 399,
+      maxHp: 340,
+      respawnMs: 18000,
+      expReward: 230,
+      patrolMinX: 2080,
+      patrolMaxX: 2380,
+      patrolSpeed: 11
+    }
+  ]
+};
+
 export const GAME_MAPS: Record<MapId, GameMapData> = {
   "fog-harbor-test": FOG_HARBOR_TEST_MAP,
   "mist-breakwater": MIST_BREAKWATER_MAP,
-  "old-harbor-warehouse": OLD_HARBOR_WAREHOUSE_MAP
+  "old-harbor-warehouse": OLD_HARBOR_WAREHOUSE_MAP,
+  "coral-tide-cavern": CORAL_TIDE_CAVERN_MAP,
+  "sunken-archive": SUNKEN_ARCHIVE_MAP
 };
 
 export const DEFAULT_GAME_MAP = FOG_HARBOR_TEST_MAP;

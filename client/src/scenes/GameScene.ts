@@ -132,7 +132,13 @@ const monsterFallbackTextureKeys: Record<MonsterSnapshot["kind"], string> = {
   "tide-watcher": "monster_tide_watcher_fallback",
   "warehouse-rat": "monster_warehouse_rat_fallback",
   "mist-puppet": "monster_mist_puppet_fallback",
-  "warehouse-sentry": "monster_warehouse_sentry_fallback"
+  "warehouse-sentry": "monster_warehouse_sentry_fallback",
+  "cave-crab": "monster_cave_crab_fallback",
+  "reef-wisp": "monster_reef_wisp_fallback",
+  "coral-warden": "monster_coral_warden_fallback",
+  "archive-drifter": "monster_archive_drifter_fallback",
+  "ink-sprite": "monster_ink_sprite_fallback",
+  "archive-guardian": "monster_archive_guardian_fallback"
 };
 
 export class GameScene extends Phaser.Scene {
@@ -1322,6 +1328,81 @@ export class GameScene extends Phaser.Scene {
     g.generateTexture("monster_warehouse_sentry_fallback", 96, 96);
     g.clear();
 
+    g.fillStyle(0x2f6f78);
+    g.fillRect(10, 14, 34, 20);
+    g.fillStyle(0x74c7c8);
+    g.fillRect(14, 9, 26, 16);
+    g.fillStyle(0xf0d68a);
+    g.fillRect(6, 18, 7, 5);
+    g.fillRect(41, 18, 7, 5);
+    g.fillStyle(0x122a20);
+    g.fillRect(18, 14, 4, 4);
+    g.fillRect(32, 14, 4, 4);
+    g.generateTexture("monster_cave_crab_fallback", 56, 42);
+    g.clear();
+
+    g.fillStyle(0x7bd0d3, 0.82);
+    g.fillCircle(24, 22, 18);
+    g.fillStyle(0xf0d68a, 0.88);
+    g.fillRect(18, 10, 12, 6);
+    g.fillStyle(0xd9e6e5, 0.78);
+    g.fillCircle(17, 20, 5);
+    g.fillCircle(31, 20, 5);
+    g.generateTexture("monster_reef_wisp_fallback", 48, 48);
+    g.clear();
+
+    g.fillStyle(0x384f54);
+    g.fillRect(24, 18, 48, 58);
+    g.fillStyle(0xd46a4c);
+    g.fillRect(18, 30, 60, 28);
+    g.fillStyle(0x74c7c8);
+    g.fillRect(34, 8, 28, 18);
+    g.fillStyle(0xf0d68a);
+    g.fillRect(40, 34, 16, 10);
+    g.fillStyle(0x1b241f);
+    g.fillRect(30, 76, 10, 12);
+    g.fillRect(58, 76, 10, 12);
+    g.generateTexture("monster_coral_warden_fallback", 96, 100);
+    g.clear();
+
+    g.fillStyle(0x2b3f55);
+    g.fillRect(10, 12, 36, 28);
+    g.fillStyle(0xd9e6e5);
+    g.fillRect(14, 8, 28, 22);
+    g.fillStyle(0x5d7f86);
+    g.fillRect(17, 14, 22, 3);
+    g.fillRect(17, 21, 18, 3);
+    g.fillStyle(0x122a20);
+    g.fillRect(38, 16, 4, 4);
+    g.generateTexture("monster_archive_drifter_fallback", 56, 48);
+    g.clear();
+
+    g.fillStyle(0x28324d, 0.86);
+    g.fillCircle(24, 22, 18);
+    g.fillStyle(0x6aa9d8, 0.8);
+    g.fillCircle(24, 22, 11);
+    g.fillStyle(0xf0d68a, 0.86);
+    g.fillRect(18, 10, 12, 5);
+    g.fillStyle(0xd9e6e5, 0.8);
+    g.fillCircle(18, 22, 4);
+    g.fillCircle(30, 22, 4);
+    g.generateTexture("monster_ink_sprite_fallback", 48, 48);
+    g.clear();
+
+    g.fillStyle(0x253342);
+    g.fillRect(24, 16, 50, 62);
+    g.fillStyle(0x6d5a83);
+    g.fillRect(18, 30, 62, 30);
+    g.fillStyle(0xf0d68a);
+    g.fillRect(34, 8, 30, 14);
+    g.fillStyle(0x6aa9d8);
+    g.fillRect(40, 36, 16, 10);
+    g.fillStyle(0x1b241f);
+    g.fillRect(30, 78, 10, 12);
+    g.fillRect(60, 78, 10, 12);
+    g.generateTexture("monster_archive_guardian_fallback", 100, 102);
+    g.clear();
+
     g.destroy();
   }
 
@@ -1557,6 +1638,70 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.currentMapId === "coral-tide-cavern") {
+      this.addSignpost(470, 456, "潮洞蟹群");
+      this.addSignpost(1040, 456, "潮封印");
+      this.addSignpost(1430, 456, "礁光幽影");
+      this.addSignpost(1960, 456, "珊瑚守望者");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(720, 336, 280);
+      this.addMistVeil(1320, 330, 320);
+      this.addMistVeil(1900, 348, 340);
+      this.add.rectangle(2030, 392, 380, 118, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2030, 316, 42, ColorHex.mistBlue, 0.16);
+      this.add.text(1910, 292, "潮洞核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "sunken-archive") {
+      this.addSignpost(500, 456, "沉船漂書");
+      this.addSignpost(1040, 456, "書庫碑");
+      this.addSignpost(1540, 456, "墨潮精靈");
+      this.addSignpost(2140, 456, "書庫守衛");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(780, 334, 300);
+      this.addMistVeil(1400, 328, 340);
+      this.addMistVeil(2100, 350, 360);
+      this.add.rectangle(2240, 392, 410, 120, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2240, 316, 46, ColorHex.mistBlue, 0.14);
+      this.add.text(2110, 292, "書庫核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "old-harbor-warehouse") {
+      this.addSignpost(410, 456, "清理倉鼠");
+      this.addSignpost(930, 456, "霧化木偶區");
+      this.addSignpost(1510, 456, "倉庫巡弋者");
+      this.addSignpost(2040, 456, "前往珊瑚潮洞");
+      this.addMistVeil(760, 360, 260);
+      this.addMistVeil(1460, 350, 310);
+      this.add.rectangle(1740, 392, 360, 110, ColorHex.deepTeal, 0.12).setStrokeStyle(2, ColorHex.gold, 0.32);
+      this.add.text(1618, 296, "倉庫深處", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
     this.addSignpost(1320, 456, "往右：燈塔營地");
     this.addSignpost(1600, 456, "往右：潮汐林道");
     this.addSignpost(1980, 456, "注意：海霧史萊姆");
@@ -1567,9 +1712,15 @@ export class GameScene extends Phaser.Scene {
     if (interactable.kind === "lantern") {
       this.addBreakwaterLantern(interactable.x, interactable.y, interactable.name);
       this.add.circle(interactable.x, interactable.y - 46, 32, ColorHex.goldBright, 0.07).setStrokeStyle(1, ColorHex.gold, 0.28);
-    } else {
+    } else if (interactable.kind === "tide-gauge") {
       this.addTideGauge(interactable.x, interactable.y);
       this.add.circle(interactable.x + 22, interactable.y - 52, 30, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.mistBlue, 0.3);
+    } else if (interactable.kind === "seal") {
+      this.addReefSeal(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else {
+      this.addArchiveTablet(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
     }
 
     const status = this.add.text(interactable.x - 38, interactable.y - 118, "", {
@@ -1628,6 +1779,49 @@ export class GameScene extends Phaser.Scene {
       color: ColorText.mistBlue,
       backgroundColor: "#10271fcc",
       padding: { x: 5, y: 3 }
+    });
+  }
+
+  private addReefSeal(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 24, 46, 64, ColorHex.deepTeal, 0.88).setStrokeStyle(2, ColorHex.gold, 0.58);
+    this.add.circle(x, y - 32, 18, ColorHex.mistBlue, 0.18);
+    const pulse = this.add.circle(x, y - 32, 9, ColorHex.goldBright, 0.32);
+    this.add.text(x - 42, y - 92, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.45,
+      duration: 1050,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addArchiveTablet(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 26, 50, 68, 0x253342, 0.9).setStrokeStyle(2, ColorHex.gold, 0.5);
+    this.add.rectangle(x, y - 42, 30, 6, ColorHex.mistBlue, 0.72);
+    this.add.rectangle(x, y - 28, 28, 4, ColorHex.goldBright, 0.64);
+    const pulse = this.add.circle(x, y - 34, 10, ColorHex.mistBlue, 0.3);
+    this.add.text(x - 42, y - 94, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.35,
+      duration: 1150,
+      yoyo: true,
+      repeat: -1
     });
   }
 
@@ -2728,6 +2922,30 @@ export class GameScene extends Phaser.Scene {
       return ColorHex.deepTeal;
     }
 
+    if (kind === "coral-warden") {
+      return 0xd46a4c;
+    }
+
+    if (kind === "archive-guardian") {
+      return 0x6d5a83;
+    }
+
+    if (kind === "ink-sprite") {
+      return 0x6aa9d8;
+    }
+
+    if (kind === "archive-drifter") {
+      return 0xd9e6e5;
+    }
+
+    if (kind === "reef-wisp") {
+      return 0x7bd0d3;
+    }
+
+    if (kind === "cave-crab") {
+      return 0x74c7c8;
+    }
+
     if (kind === "mist-puppet") {
       return 0x9b7b52;
     }
@@ -2745,8 +2963,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getMonsterDisplaySize(kind: MonsterSnapshot["kind"]): [number, number] {
-    if (kind === "tide-watcher" || kind === "warehouse-sentry") {
+    if (kind === "tide-watcher" || kind === "warehouse-sentry" || kind === "coral-warden" || kind === "archive-guardian") {
       return [86, 86];
+    }
+
+    if (kind === "reef-wisp" || kind === "ink-sprite") {
+      return [46, 46];
+    }
+
+    if (kind === "archive-drifter") {
+      return [50, 42];
+    }
+
+    if (kind === "cave-crab") {
+      return [50, 38];
     }
 
     if (kind === "mist-puppet") {
@@ -2757,7 +2987,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shouldUseMonsterEye(kind: MonsterSnapshot["kind"]) {
-    return !this.hasUsableTexture(monsterTextureKeys[kind]) && kind === "tide-watcher";
+    return !this.hasUsableTexture(monsterTextureKeys[kind]) && (kind === "tide-watcher" || kind === "coral-warden" || kind === "archive-guardian");
   }
 
   private applyMonsterSpriteAnimation(view: MonsterView, kind: MonsterSnapshot["kind"]) {
@@ -3519,19 +3749,51 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (quest.status === "completed") {
-      return { label: interactable.kind === "lantern" ? "已修復" : "已調查", color: ColorText.jade, done: true };
+      return { label: this.getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
     }
 
     const interacted = quest.interactedTargetIds?.includes(interactable.id) ?? false;
     if (interacted) {
-      return { label: interactable.kind === "lantern" ? "已修復" : "已調查", color: ColorText.jade, done: true };
+      return { label: this.getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
     }
 
     if (quest.status === "ready") {
       return { label: "可回報", color: ColorText.gold, done: true };
     }
 
-    return { label: interactable.kind === "lantern" ? "待修復" : "待調查", color: ColorText.danger, done: false };
+    return { label: this.getInteractablePendingLabel(interactable), color: ColorText.danger, done: false };
+  }
+
+  private getInteractableDoneLabel(interactable: MapInteractableData) {
+    if (interactable.kind === "lantern") {
+      return "已修復";
+    }
+
+    if (interactable.kind === "seal") {
+      return "已啟動";
+    }
+
+    if (interactable.kind === "tablet") {
+      return "已校準";
+    }
+
+    return "已調查";
+  }
+
+  private getInteractablePendingLabel(interactable: MapInteractableData) {
+    if (interactable.kind === "lantern") {
+      return "待修復";
+    }
+
+    if (interactable.kind === "seal") {
+      return "待啟動";
+    }
+
+    if (interactable.kind === "tablet") {
+      return "待校準";
+    }
+
+    return "待調查";
   }
 
   private getInteractableQuest(interactable: MapInteractableData) {
@@ -3587,6 +3849,42 @@ export class GameScene extends Phaser.Scene {
       }
 
       return { id: "mist-breakwater-entry", name: "堤道入口" };
+    }
+
+    if (this.currentMapId === "old-harbor-warehouse") {
+      if (x >= 1600) {
+        return { id: "warehouse-sentry-zone", name: "倉庫深處" };
+      }
+
+      if (x >= 900) {
+        return { id: "warehouse-mid", name: "舊港倉庫中段" };
+      }
+
+      return { id: "warehouse-entry", name: "倉庫入口" };
+    }
+
+    if (this.currentMapId === "coral-tide-cavern") {
+      if (x >= 1880) {
+        return { id: "coral-warden-core", name: "潮洞核心" };
+      }
+
+      if (x >= 1180) {
+        return { id: "reef-seal-zone", name: "礁光封印區" };
+      }
+
+      return { id: "cavern-entry", name: "珊瑚潮洞入口" };
+    }
+
+    if (this.currentMapId === "sunken-archive") {
+      if (x >= 2080) {
+        return { id: "archive-guardian-core", name: "書庫核心" };
+      }
+
+      if (x >= 1280) {
+        return { id: "archive-tablet-zone", name: "書庫碑廊" };
+      }
+
+      return { id: "archive-entry", name: "沉船書庫入口" };
     }
 
     if (x >= 1850) {
@@ -3772,7 +4070,17 @@ export class GameScene extends Phaser.Scene {
       "warehouse-rat-cleanup",
       "damp-wood-sample",
       "mist-puppet-clear",
-      "warehouse-sentry-core"
+      "warehouse-sentry-core",
+      "cavern-crab-clear",
+      "reef-spark-sample",
+      "reef-seal-activate",
+      "coral-warden-core",
+      "coral-key-report",
+      "archive-drifter-clear",
+      "ink-core-sample",
+      "archive-tablet-align",
+      "archive-guardian-core",
+      "archive-seal-report"
     ];
   }
 
@@ -3933,7 +4241,21 @@ export class GameScene extends Phaser.Scene {
               dialogue: "前方是倉庫巡弋者活動區。先確認補給與裝備，必要時按 H 回入口。",
               toast: "前方為倉庫巡弋者區，建議裝備舊港短刀或補丁布衣後再挑戰。"
             }
-          : undefined;
+          : this.currentMapId === "coral-tide-cavern"
+            ? {
+                entryX: 1840,
+                repeatX: 1940,
+                dialogue: "前方是珊瑚守望者核心。先確認補給、裝備與封印進度，必要時按 H 回入口。",
+                toast: "前方為珊瑚守望者區，建議完成潮封印後再挑戰。"
+              }
+            : this.currentMapId === "sunken-archive"
+              ? {
+                  entryX: 2040,
+                  repeatX: 2140,
+                  dialogue: "前方是書庫守衛核心。先確認補給、裝備與書庫碑進度，必要時按 H 回入口。",
+                  toast: "前方為書庫守衛區，建議校準書庫碑後再挑戰。"
+                }
+              : undefined;
     if (!bossArea) {
       return;
     }
@@ -4007,6 +4329,34 @@ export class GameScene extends Phaser.Scene {
             questId: "warehouse-sentry-core",
             name: "倉庫巡弋者",
             defeatedText: "倉庫巡弋者已擊退 | 回報倉庫管理員阿桂"
+          }
+        : undefined;
+    }
+
+    if (this.currentMapId === "coral-tide-cavern") {
+      const monster = this.monsterSnapshots.get("coral-warden-1");
+      const quest = this.quests.get("coral-warden-core");
+      const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1840));
+      return monster && shouldShow
+        ? {
+            monster,
+            questId: "coral-warden-core",
+            name: "珊瑚守望者",
+            defeatedText: "珊瑚守望者已擊退 | 拾取珊瑚潮鑰後找潮洞學者阿璇"
+          }
+        : undefined;
+    }
+
+    if (this.currentMapId === "sunken-archive") {
+      const monster = this.monsterSnapshots.get("archive-guardian-1");
+      const quest = this.quests.get("archive-guardian-core");
+      const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2040));
+      return monster && shouldShow
+        ? {
+            monster,
+            questId: "archive-guardian-core",
+            name: "書庫守衛",
+            defeatedText: "書庫守衛已擊退 | 拾取書庫封印後找書庫管理員阿澈"
           }
         : undefined;
     }
@@ -4209,6 +4559,30 @@ export class GameScene extends Phaser.Scene {
 
     if (itemId === "damp-wood") {
       return "mist-puppet";
+    }
+
+    if (itemId === "crab-shell") {
+      return "cave-crab";
+    }
+
+    if (itemId === "reef-spark") {
+      return "reef-wisp";
+    }
+
+    if (itemId === "coral-key") {
+      return "coral-warden";
+    }
+
+    if (itemId === "salted-page") {
+      return "archive-drifter";
+    }
+
+    if (itemId === "ink-core") {
+      return "ink-sprite";
+    }
+
+    if (itemId === "archive-seal") {
+      return "archive-guardian";
     }
 
     return undefined;
@@ -4430,11 +4804,12 @@ export class GameScene extends Phaser.Scene {
 
   private getChapterClearSummary() {
     const completed = this.getChapterQuestIds().filter((questId) => this.quests.get(questId)?.status === "completed").length;
+    const total = this.getChapterQuestIds().length;
     return [
-      `完成進度：${completed}/8`,
-      "霧港試煉、海霧堤道與潮位尺調查已完成。",
+      `完成進度：${completed}/${total}`,
+      "霧港、海霧堤道、舊港倉庫、珊瑚潮洞與沉船書庫已納入章節導引。",
       "可繼續自由探索，或按 T 回報測試意見。",
-      "下一階段：Boss 結算、正式素材與第二章入口。"
+      "下一階段：平衡數值、正式素材與學生測試回饋。"
     ].join("\n");
   }
 

@@ -17,6 +17,8 @@
     "smoke:multi": "node scripts/multiplayer-smoke.mjs",
     "smoke:interactable": "node scripts/interactable-smoke.mjs",
     "smoke:warehouse": "node scripts/warehouse-smoke.mjs",
+    "smoke:cavern": "node scripts/cavern-smoke.mjs",
+    "smoke:archive": "node scripts/archive-smoke.mjs",
     "smoke:quest-lock": "node scripts/quest-lock-smoke.mjs",
     "audit:ui-text": "node scripts/audit-ui-text.mjs",
     "check:beta:v02": "node scripts/beta-v02-check.mjs && npm run audit:ui-text && npm run typecheck && npm --workspace client run build",
