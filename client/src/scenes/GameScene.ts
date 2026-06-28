@@ -1,0 +1,4478 @@
+import Phaser from "phaser";
+import {
+  CLASS_SKILL_IDS,
+  DEFAULT_GAME_MAP,
+  GAME_MAPS,
+  ITEM_DEFINITIONS,
+  MONSTER_KIND_NAMES,
+  SKILL_DEFINITIONS,
+  getGameMap,
+  type CharacterClass,
+  type EquipmentSnapshot,
+  type GameMapData,
+  type InventorySlot,
+  type ItemDropSnapshot,
+  type ItemId,
+  type MapId,
+  type MapInteractableData,
+  type MonsterSnapshot,
+  type PlayerAnimation,
+  type PlayerSnapshot,
+  type QuestSnapshot,
+  type ServerMessage,
+  type ShopDefinition,
+  type SkillId
+} from "@penglai/shared";
+import { gameHeight, gameWidth, jumpSpeed, moveSpeed } from "../game/constants";
+import { characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
+import { GameAudioManager } from "../game/audioManager";
+import {
+  mapBackgroundLayers,
+  monsterAnimationKeys,
+  monsterTextureKeys,
+  mistOverlayTextureKey,
+  optionalImageAssets,
+  optionalSpriteSheets,
+  platformTextureKey,
+  playerAnimationKeys,
+  playerAnimationTextureKeys
+} from "../game/assetManifest";
+import { renderGoogleSignInButton } from "../game/googleIdentity";
+import { createUiPanel, type UiPanel } from "../game/uiPanel";
+import { ColorHex, ColorText, uiFont } from "../game/uiTheme";
+import type { ItemDropView, MonsterView } from "../game/viewTypes";
+
+type KeyName =
+  | "a"
+  | "d"
+  | "w"
+  | "s"
+  | "j"
+  | "k"
+  | "e"
+  | "f"
+  | "g"
+  | "h"
+  | "b"
+  | "i"
+  | "q"
+  | "o"
+  | "c"
+  | "n"
+  | "m"
+  | "p"
+  | "v"
+  | "r"
+  | "l"
+  | "y"
+  | "t"
+  | "u"
+  | "enter"
+  | "one"
+  | "two"
+  | "three";
+
+interface AuthAccountSummary {
+  email?: string;
+  hostedDomain?: string;
+  displayName?: string;
+}
+
+interface AuthSaveSlotSummary {
+  saveSlot: string;
+  characterName?: string;
+  level?: number;
+  updatedAt: number;
+}
+
+interface StoredAuthSession {
+  sessionId: string;
+  expiresAt: number;
+  account?: AuthAccountSummary;
+  saveSlots?: AuthSaveSlotSummary[];
+}
+
+interface AnnouncementNotice {
+  text: string;
+  category: string;
+  sentAt: number;
+  expiresAt?: number;
+}
+
+const maxPlayerMp = fallbackPlayerMp;
+const characterClassOptions: Array<{
+  className: CharacterClass;
+  label: string;
+  description: string;
+}> = [
+  {
+    className: "swordsman",
+    label: "劍士",
+    description: "生命 115 / 法力 36，技能：斬擊。"
+  },
+  {
+    className: "talisman",
+    label: "符咒師",
+    description: "生命 90 / 法力 60，技能：靈符彈。"
+  },
+  {
+    className: "hunter",
+    label: "獵人",
+    description: "生命 100 / 法力 42，技能：遠射。"
+  }
+];
+const emptyEquipment: EquipmentSnapshot = {
+  weapon: null,
+  armor: null
+};
+const fallbackPlayerTextureKey = "player";
+const monsterFallbackTextureKeys: Record<MonsterSnapshot["kind"], string> = {
+  "field-rat": "monster_field_rat_fallback",
+  "mist-slime": "monster_mist_slime_fallback",
+  "tide-watcher": "monster_tide_watcher_fallback",
+  "warehouse-rat": "monster_warehouse_rat_fallback",
+  "mist-puppet": "monster_mist_puppet_fallback",
+  "warehouse-sentry": "monster_warehouse_sentry_fallback"
+};
+
+export class GameScene extends Phaser.Scene {
+  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+  private keys?: Record<KeyName, Phaser.Input.Keyboard.Key>;
+  private player?: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+  private facing: "left" | "right" = "right";
+  private playerId = "";
+  private ws?: WebSocket;
+  private remotePlayers = new Map<string, Phaser.GameObjects.Sprite>();
+  private monsters = new Map<string, MonsterView>();
+  private itemDrops = new Map<string, ItemDropView>();
+  private statusText?: Phaser.GameObjects.Text;
+  private levelText?: Phaser.GameObjects.Text;
+  private hpBack?: Phaser.GameObjects.Rectangle;
+  private hpFill?: Phaser.GameObjects.Rectangle;
+  private hpText?: Phaser.GameObjects.Text;
+  private mpBack?: Phaser.GameObjects.Rectangle;
+  private mpFill?: Phaser.GameObjects.Rectangle;
+  private mpText?: Phaser.GameObjects.Text;
+  private expBack?: Phaser.GameObjects.Rectangle;
+  private expFill?: Phaser.GameObjects.Rectangle;
+  private expText?: Phaser.GameObjects.Text;
+  private bossHpBack?: Phaser.GameObjects.Rectangle;
+  private bossHpFill?: Phaser.GameObjects.Rectangle;
+  private bossStatusText?: Phaser.GameObjects.Text;
+  private goldText?: Phaser.GameObjects.Text;
+  private skillText?: Phaser.GameObjects.Text;
+  private inventoryPanel?: UiPanel;
+  private questPanel?: UiPanel;
+  private questLogPanel?: UiPanel;
+  private characterPanel?: UiPanel;
+  private guidePanel?: UiPanel;
+  private announcementPanel?: UiPanel;
+  private shopPanel?: UiPanel;
+  private savePanel?: UiPanel;
+  private settingsPanel?: UiPanel;
+  private dialogueText?: Phaser.GameObjects.Text;
+  private dialogueBox?: Phaser.GameObjects.Graphics;
+  private promptText?: Phaser.GameObjects.Text;
+  private questTargetText?: Phaser.GameObjects.Text;
+  private zoneText?: Phaser.GameObjects.Text;
+  private quests = new Map<string, QuestSnapshot>();
+  private announcements: AnnouncementNotice[] = [];
+  private inventory: InventorySlot[] = [];
+  private equipment: EquipmentSnapshot = { ...emptyEquipment };
+  private openShop?: ShopDefinition;
+  private selectedShopIndex = 0;
+  private inventoryPanelVisible = false;
+  private questPanelVisible = true;
+  private questLogPanelVisible = false;
+  private characterPanelVisible = false;
+  private guidePanelVisible = true;
+  private announcementPanelVisible = false;
+  private shopPanelVisible = false;
+  private savePanelVisible = false;
+  private settingsPanelVisible = false;
+  private nearbyNpcId = "";
+  private nearbyInteractableId = "";
+  private nearbyDropId = "";
+  private nearbyPortalId = "";
+  private pendingPickupIds = new Set<string>();
+  private currentZoneId = "";
+  private currentMap: GameMapData = DEFAULT_GAME_MAP;
+  private currentMapId: MapId = DEFAULT_GAME_MAP.id;
+  private mapObjects: Phaser.GameObjects.GameObject[] = [];
+  private chapterStateObjects: Phaser.GameObjects.GameObject[] = [];
+  private interactableStatusTexts = new Map<string, Phaser.GameObjects.Text>();
+  private monsterSnapshots = new Map<string, MonsterSnapshot>();
+  private failedAssetKeys = new Set<string>();
+  private platformColliders: Phaser.Physics.Arcade.Collider[] = [];
+  private stageClearShown = false;
+  private portalReadyAt = 0;
+  private bossWarningReadyAt = 0;
+  private bossEntryHintShown = false;
+  private currentSaveSlot = "";
+  private previousSaveSlot = "";
+  private authSessionId = "";
+  private authAccountLabel = "";
+  private authSaveSlots: AuthSaveSlotSummary[] = [];
+  private googleButtonElement?: HTMLDivElement;
+  private feedbackFormElement?: HTMLDivElement;
+  private feedbackSubmitReadyAt = 0;
+  private titleAuthText?: Phaser.GameObjects.Text;
+  private lastPlayerUpdateAt = 0;
+  private localHp = 100;
+  private localMp = maxPlayerMp;
+  private localMaxHp = 100;
+  private localMaxMp = maxPlayerMp;
+  private localAttack = 12;
+  private localDefense = 0;
+  private skillReadyAt = 0;
+  private gameStarted = false;
+  private titleOverlay?: Phaser.GameObjects.Container;
+  private titleSlotText?: Phaser.GameObjects.Text;
+  private titleCharacterText?: Phaser.GameObjects.Text;
+  private titleNoticeText?: Phaser.GameObjects.Text;
+  private characterName = "霧港旅人";
+  private selectedClass: CharacterClass = "swordsman";
+  private localPlayerName = "霧港旅人";
+  private localClassName: CharacterClass = "swordsman";
+  private audio = new GameAudioManager();
+
+  constructor() {
+    super("boot");
+  }
+
+  preload() {
+    this.createGeneratedTextures();
+    this.loadOptionalSpriteSheets();
+  }
+
+  create() {
+    this.physics.world.setBounds(0, 0, this.currentMap.width, this.currentMap.height);
+    this.cameras.main.setBackgroundColor("#17233b");
+
+    this.addBackground();
+    this.currentSaveSlot = this.getSaveSlot();
+    this.previousSaveSlot = this.getPreviousSaveSlot();
+    this.loadStoredAuthSession();
+    this.loadCharacterDraft();
+    this.audio.loadSettings();
+    this.createOptionalSpriteAnimations();
+
+    this.cursors = this.input.keyboard?.createCursorKeys();
+    this.keys = this.input.keyboard?.addKeys({
+      a: Phaser.Input.Keyboard.KeyCodes.A,
+      d: Phaser.Input.Keyboard.KeyCodes.D,
+      w: Phaser.Input.Keyboard.KeyCodes.W,
+      s: Phaser.Input.Keyboard.KeyCodes.S,
+      j: Phaser.Input.Keyboard.KeyCodes.J,
+      k: Phaser.Input.Keyboard.KeyCodes.K,
+      e: Phaser.Input.Keyboard.KeyCodes.E,
+      f: Phaser.Input.Keyboard.KeyCodes.F,
+      g: Phaser.Input.Keyboard.KeyCodes.G,
+      h: Phaser.Input.Keyboard.KeyCodes.H,
+      b: Phaser.Input.Keyboard.KeyCodes.B,
+      i: Phaser.Input.Keyboard.KeyCodes.I,
+      q: Phaser.Input.Keyboard.KeyCodes.Q,
+      o: Phaser.Input.Keyboard.KeyCodes.O,
+      c: Phaser.Input.Keyboard.KeyCodes.C,
+      n: Phaser.Input.Keyboard.KeyCodes.N,
+      m: Phaser.Input.Keyboard.KeyCodes.M,
+      p: Phaser.Input.Keyboard.KeyCodes.P,
+      v: Phaser.Input.Keyboard.KeyCodes.V,
+      r: Phaser.Input.Keyboard.KeyCodes.R,
+      l: Phaser.Input.Keyboard.KeyCodes.L,
+      y: Phaser.Input.Keyboard.KeyCodes.Y,
+      t: Phaser.Input.Keyboard.KeyCodes.T,
+      u: Phaser.Input.Keyboard.KeyCodes.U,
+      enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
+      one: Phaser.Input.Keyboard.KeyCodes.ONE,
+      two: Phaser.Input.Keyboard.KeyCodes.TWO,
+      three: Phaser.Input.Keyboard.KeyCodes.THREE
+    }) as Record<KeyName, Phaser.Input.Keyboard.Key>;
+    this.input.keyboard?.on("keydown", this.handleTitleNameKeyDown, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard?.off("keydown", this.handleTitleNameKeyDown, this);
+      this.removeGoogleButton();
+      this.removeFeedbackForm();
+    });
+
+    this.addTitleScreen();
+  }
+
+  private addTitleScreen() {
+    const overlay = this.add.container(0, 0).setScrollFactor(0).setDepth(300);
+    const shade = this.add.rectangle(0, 0, gameWidth, gameHeight, ColorHex.inkGreenShade, 0.82).setOrigin(0);
+    const woodFrame = this.add.rectangle(gameWidth / 2, gameHeight / 2 + 3, 624, 374, ColorHex.woodDark, 0.96);
+    const frame = this.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, ColorHex.inkGreenDeep, 0.97);
+    const border = this.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, 0x000000, 0);
+    const header = this.add.rectangle(gameWidth / 2, gameHeight / 2 - 150, 610, 60, ColorHex.deepTeal, 0.99);
+    const accent = this.add.rectangle(gameWidth / 2, gameHeight / 2 - 119, 610, 3, ColorHex.gold, 0.92);
+    const seal = this.add.rectangle(gameWidth / 2 - 250, gameHeight / 2 - 150, 22, 22, ColorHex.vermilion, 1);
+    seal.setStrokeStyle(1, ColorHex.gold, 0.9);
+    const title = this.add
+      .text(gameWidth / 2, gameHeight / 2 - 158, "蓬萊異聞錄 Online", {
+        fontFamily: uiFont,
+        fontSize: "30px",
+        color: ColorText.gold,
+        stroke: ColorText.ink,
+        strokeThickness: 4
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(gameWidth / 2, gameHeight / 2 - 104, "霧港試煉場", {
+        fontFamily: uiFont,
+        fontSize: "16px",
+        color: ColorText.sand
+      })
+      .setOrigin(0.5);
+    this.titleSlotText = this.add
+      .text(gameWidth / 2 - 245, gameHeight / 2 - 58, "", {
+        fontSize: "15px",
+        color: "#f2efe6",
+        fixedWidth: 490,
+        lineSpacing: 8,
+        wordWrap: { width: 490 }
+      })
+      .setOrigin(0, 0);
+    this.titleCharacterText = this.add
+      .text(gameWidth / 2 - 245, gameHeight / 2 - 4, "", {
+        fontSize: "15px",
+        color: "#f6ead2",
+        fixedWidth: 490,
+        lineSpacing: 7,
+        wordWrap: { width: 490 }
+      })
+      .setOrigin(0, 0);
+    const controls = this.add
+      .text(
+        gameWidth / 2 - 245,
+        gameHeight / 2 + 78,
+        [
+          "Enter 進入遊戲",
+          "← / → 切換職業 | N 切換預設名稱",
+          "直接輸入英文/數字改名 | Backspace 刪字",
+          "R 新存檔 | L 上一個存檔 | Y 複製代碼 | G 登出",
+          "1/2/3 切換帳號存檔"
+        ].join("\n"),
+        {
+          fontSize: "14px",
+          color: "#d8cfae",
+          fixedWidth: 490,
+          lineSpacing: 7
+        }
+      )
+      .setOrigin(0, 0);
+    this.titleNoticeText = this.add
+      .text(gameWidth / 2, gameHeight / 2 + 152, "", {
+        fontSize: "14px",
+        color: "#91f0a5",
+        fixedWidth: 520,
+        align: "center"
+      })
+      .setOrigin(0.5);
+    this.titleAuthText = this.add
+      .text(gameWidth / 2, gameHeight / 2 + 128, "", {
+        fontSize: "13px",
+        color: "#d8cfae",
+        fixedWidth: 520,
+        align: "center"
+      })
+      .setOrigin(0.5);
+
+    border.setStrokeStyle(2, ColorHex.gold, 0.62);
+    overlay.add([
+      shade,
+      woodFrame,
+      frame,
+      border,
+      header,
+      accent,
+      seal,
+      title,
+      subtitle,
+      this.titleSlotText,
+      this.titleCharacterText,
+      controls,
+      this.titleAuthText,
+      this.titleNoticeText
+    ]);
+    this.titleOverlay = overlay;
+    this.updateTitleScreen();
+    void this.mountGoogleButton();
+    void this.refreshAuthSession();
+  }
+
+  private updateTitleScreen() {
+    if (!this.titleSlotText) {
+      return;
+    }
+
+    const previous = this.previousSaveSlot || this.getPreviousSaveSlot();
+    this.titleSlotText.setText(
+      [
+        `目前存檔：${this.formatSaveSlot(this.currentSaveSlot || this.getSaveSlot())}`,
+        `上一個存檔：${previous ? this.formatSaveSlot(previous) : "無"}`,
+        ...this.getAccountSaveSlotLines(2)
+      ].join("\n")
+    );
+
+    const option = this.getSelectedClassOption();
+    this.titleCharacterText?.setText(
+      [
+        `角色名稱：${this.characterName}`,
+        `職業：${option.label}`,
+        option.description,
+        "進入遊戲後會寫入 SQLite 角色資料。"
+      ].join("\n")
+    );
+    this.titleAuthText?.setText(
+      this.authSessionId
+        ? `Google 帳號：${this.authAccountLabel || "已登入"}，會使用帳號綁定存檔。`
+        : googleClientId
+          ? "可使用學校 Google 帳號登入。"
+          : "Google 登入尚未設定，仍可使用本機存檔遊玩。"
+    );
+  }
+
+  private showTitleNotice(text: string) {
+    if (!this.titleNoticeText) {
+      return;
+    }
+
+    this.titleNoticeText.setText(text);
+    this.titleNoticeText.setAlpha(1);
+    this.tweens.killTweensOf(this.titleNoticeText);
+    this.tweens.add({
+      targets: this.titleNoticeText,
+      alpha: 0,
+      delay: 2200,
+      duration: 360
+    });
+  }
+
+  private async mountGoogleButton() {
+    this.removeGoogleButton();
+
+    if (!googleClientId || this.authSessionId) {
+      return;
+    }
+
+    const buttonElement = document.createElement("div");
+    buttonElement.style.position = "fixed";
+    buttonElement.style.zIndex = "50";
+    buttonElement.style.width = "240px";
+    buttonElement.style.height = "40px";
+    buttonElement.style.transform = "translateX(-50%)";
+    document.body.appendChild(buttonElement);
+    this.googleButtonElement = buttonElement;
+    this.positionGoogleButton();
+    window.addEventListener("resize", this.positionGoogleButton);
+
+    try {
+      await renderGoogleSignInButton(buttonElement, googleClientId, (credential) => {
+        void this.handleGoogleCredential(credential);
+      });
+    } catch {
+      this.showTitleNotice("Google 登入元件載入失敗，請確認網路與 Client ID 設定。");
+    }
+  }
+
+  private positionGoogleButton = () => {
+    if (!this.googleButtonElement) {
+      return;
+    }
+
+    const rect = this.game.canvas.getBoundingClientRect();
+    this.googleButtonElement.style.left = `${rect.left + rect.width / 2}px`;
+    this.googleButtonElement.style.top = `${rect.top + rect.height / 2 + 166}px`;
+  };
+
+  private removeGoogleButton() {
+    if (!this.googleButtonElement) {
+      return;
+    }
+
+    window.removeEventListener("resize", this.positionGoogleButton);
+    this.googleButtonElement.remove();
+    this.googleButtonElement = undefined;
+  }
+
+  private toggleFeedbackForm() {
+    if (this.feedbackFormElement) {
+      this.removeFeedbackForm();
+      return;
+    }
+
+    this.showFeedbackForm();
+  }
+
+  private showFeedbackForm() {
+    this.removeFeedbackForm();
+    const overlay = document.createElement("div");
+    overlay.className = "feedback-overlay";
+    overlay.innerHTML = `
+      <form class="feedback-form">
+        <header>
+          <div>
+            <p>Beta 測試回饋</p>
+            <h2>霧港試煉體驗紀錄</h2>
+          </div>
+          <button type="button" data-feedback-close aria-label="關閉回饋表單">×</button>
+        </header>
+        <label>
+          <span>姓名或代號</span>
+          <input name="testerName" type="text" maxlength="40" required />
+        </label>
+        <label>
+          <span>班級 / 組別</span>
+          <input name="classGroup" type="text" maxlength="40" required />
+        </label>
+        <label>
+          <span>難度 1-5</span>
+          <select name="difficulty">
+            <option value="1">1 很簡單</option>
+            <option value="2">2 偏簡單</option>
+            <option value="3" selected>3 剛好</option>
+            <option value="4">4 偏難</option>
+            <option value="5">5 太難</option>
+          </select>
+        </label>
+        <label>
+          <span>卡關點</span>
+          <textarea name="stuckPoint" maxlength="160" required placeholder="例如：找不到海霧堤道、Boss 太痛、平台跳不上去"></textarea>
+        </label>
+        <label>
+          <span>建議</span>
+          <textarea name="suggestion" maxlength="360" required placeholder="例如：希望提示更明顯、怪物少一點、加更多任務"></textarea>
+        </label>
+        <footer>
+          <span>Esc 或 T 關閉，送出後老師可在管理面板查看。</span>
+          <button type="submit">送出回饋</button>
+        </footer>
+      </form>
+    `;
+    document.body.appendChild(overlay);
+    this.feedbackFormElement = overlay;
+    this.input.keyboard!.enabled = false;
+
+    const testerInput = overlay.querySelector<HTMLInputElement>('input[name="testerName"]');
+    const classInput = overlay.querySelector<HTMLInputElement>('input[name="classGroup"]');
+    try {
+      testerInput!.value = window.localStorage.getItem("penglai-feedback-tester") ?? "";
+      classInput!.value = window.localStorage.getItem("penglai-feedback-class") ?? "";
+    } catch {
+      // Feedback can still be submitted without remembering defaults.
+    }
+    testerInput?.focus();
+
+    overlay.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Escape" || (event.key.toLowerCase() === "t" && event.target === overlay)) {
+        this.removeFeedbackForm();
+      }
+    });
+    overlay.querySelector<HTMLButtonElement>("[data-feedback-close]")?.addEventListener("click", () => {
+      this.removeFeedbackForm();
+    });
+    overlay.querySelector<HTMLFormElement>("form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (event.currentTarget instanceof HTMLFormElement) {
+        void this.submitFeedbackForm(event.currentTarget);
+      }
+    });
+  }
+
+  private removeFeedbackForm() {
+    if (!this.feedbackFormElement) {
+      return;
+    }
+
+    this.feedbackFormElement.remove();
+    this.feedbackFormElement = undefined;
+    if (this.input.keyboard) {
+      this.input.keyboard.enabled = true;
+    }
+  }
+
+  private async submitFeedbackForm(form: HTMLFormElement) {
+    const now = Date.now();
+    if (now < this.feedbackSubmitReadyAt) {
+      return;
+    }
+
+    this.feedbackSubmitReadyAt = now + 1200;
+    const formData = new FormData(form);
+    const testerName = String(formData.get("testerName") ?? "").trim();
+    const classGroup = String(formData.get("classGroup") ?? "").trim();
+    const stuckPoint = String(formData.get("stuckPoint") ?? "").trim();
+    const suggestion = String(formData.get("suggestion") ?? "").trim();
+    if (!testerName || !classGroup || !stuckPoint || !suggestion) {
+      this.showToast("請填完姓名、班級、卡關點與建議。");
+      return;
+    }
+
+    const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    submitButton!.disabled = true;
+    submitButton!.textContent = "送出中...";
+    try {
+      const response = await fetch(this.getApiUrl("/feedback"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          testerName,
+          classGroup,
+          difficulty: Number(formData.get("difficulty") ?? 3),
+          stuckPoint,
+          suggestion,
+          playerName: this.localPlayerName || this.characterName,
+          saveSlot: this.currentSaveSlot || this.getSaveSlot(),
+          sessionId: this.authSessionId || this.getAuthSessionId(),
+          mapId: this.currentMapId,
+          chapterProgress: `${this.getChapterStepSummary()} / ${this.getChapterChecklist()}`
+        })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      try {
+        window.localStorage.setItem("penglai-feedback-tester", testerName);
+        window.localStorage.setItem("penglai-feedback-class", classGroup);
+      } catch {
+        // Remembering local form defaults is optional.
+      }
+      this.removeFeedbackForm();
+      this.showToast("回饋已送出，謝謝測試。");
+    } catch {
+      this.showToast("回饋送出失敗，請確認伺服器連線。");
+      submitButton!.disabled = false;
+      submitButton!.textContent = "送出回饋";
+    }
+  }
+
+  private async handleGoogleCredential(credential: string) {
+    try {
+      this.showTitleNotice("正在驗證 Google 帳號...");
+      const response = await fetch(this.getAuthUrl(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          credential,
+          saveSlot: this.currentSaveSlot || this.getSaveSlot(),
+          characterName: this.characterName
+        })
+      });
+      const result = (await response.json()) as {
+        sessionId?: string;
+        expiresAt?: number;
+        saveSlot?: string;
+        account?: AuthAccountSummary;
+        saveSlots?: AuthSaveSlotSummary[];
+        error?: string;
+      };
+
+      if (!response.ok || !result.sessionId || !result.saveSlot) {
+        throw new Error(result.error ?? "google_auth_failed");
+      }
+
+      this.authSessionId = result.sessionId;
+      this.authAccountLabel = this.formatAccountLabel(result.account);
+      this.authSaveSlots = result.saveSlots ?? [];
+      this.persistAuthSession(result.sessionId, result.expiresAt, result.account, result.saveSlots);
+      this.setSaveSlot(result.saveSlot, true);
+      this.removeGoogleButton();
+      this.updateTitleScreen();
+      this.showTitleNotice("Google 帳號登入完成，存檔已綁定。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "google_auth_failed";
+      this.showTitleNotice(`Google 登入失敗：${message}`);
+    }
+  }
+
+  private async refreshAuthSession() {
+    if (!this.authSessionId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.getApiUrl("/auth/session")}?session=${encodeURIComponent(this.authSessionId)}`);
+      const result = (await response.json()) as {
+        active?: boolean;
+        sessionId?: string;
+        expiresAt?: number;
+        account?: AuthAccountSummary;
+        saveSlots?: AuthSaveSlotSummary[];
+      };
+
+      if (!response.ok || !result.active || !result.sessionId) {
+        this.clearAuthSession(false);
+        this.showTitleNotice("Google 登入已過期，請重新登入。");
+        return;
+      }
+
+      this.authSessionId = result.sessionId;
+      this.authAccountLabel = this.formatAccountLabel(result.account);
+      this.authSaveSlots = result.saveSlots ?? [];
+      this.persistAuthSession(result.sessionId, result.expiresAt, result.account, result.saveSlots);
+      this.updateTitleScreen();
+      this.updateSavePanel();
+    } catch {
+      this.updateTitleScreen();
+    }
+  }
+
+  private async logoutAuthSession(restartScene: boolean) {
+    if (!this.authSessionId) {
+      this.showSaveMessage("目前沒有登入 Google 帳號。");
+      return;
+    }
+
+    const sessionId = this.authSessionId;
+    try {
+      await fetch(this.getApiUrl("/auth/logout"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId })
+      });
+    } catch {
+      // Local logout is still valid if the network call fails.
+    }
+
+    this.clearAuthSession(true);
+    this.showSaveMessage("已登出 Google 帳號。");
+    if (restartScene) {
+      this.ws?.close();
+      this.scene.restart();
+    }
+  }
+
+  private clearAuthSession(refreshUi: boolean) {
+    this.authSessionId = "";
+    this.authAccountLabel = "";
+    this.authSaveSlots = [];
+    try {
+      window.localStorage.removeItem(clientStorageKeys.authSession);
+    } catch {
+      // In-memory state is already cleared.
+    }
+
+    if (refreshUi) {
+      this.updateTitleScreen();
+      this.updateSavePanel();
+      void this.mountGoogleButton();
+    }
+  }
+
+  private formatAccountLabel(account: AuthAccountSummary | undefined) {
+    return account?.email ?? account?.displayName ?? account?.hostedDomain ?? "";
+  }
+
+  private getPressedAccountSaveSlotIndex() {
+    if (!this.keys) {
+      return undefined;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.one)) {
+      return 0;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.two)) {
+      return 1;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.three)) {
+      return 2;
+    }
+
+    return undefined;
+  }
+
+  private loadAccountSaveSlot(index: number) {
+    const slot = this.authSaveSlots[index];
+    if (!slot) {
+      this.showSaveMessage(`沒有第 ${index + 1} 個帳號存檔。`);
+      return;
+    }
+
+    if (slot.saveSlot === this.currentSaveSlot) {
+      this.showSaveMessage(`已經在帳號存檔 ${index + 1}。`);
+      return;
+    }
+
+    this.setSaveSlot(slot.saveSlot, true);
+    this.loadCharacterDraft();
+    this.restartForSaveSlot(`已切換到帳號存檔 ${index + 1}：${this.formatSaveSlot(slot.saveSlot)}。`);
+  }
+
+  private getAccountSaveSlotLines(limit: number) {
+    if (!this.authSessionId) {
+      return [];
+    }
+
+    if (this.authSaveSlots.length === 0) {
+      return ["帳號存檔：尚無摘要"];
+    }
+
+    return this.authSaveSlots.slice(0, limit).map((slot, index) => {
+      const name = slot.characterName || "未命名角色";
+      const level = slot.level ? ` Lv.${slot.level}` : "";
+      return `${index + 1}. ${name}${level} / ${this.formatSaveSlot(slot.saveSlot)}`;
+    });
+  }
+
+  private handleTitleInput() {
+    if (!this.keys) {
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.enter)) {
+      this.startGame();
+      return;
+    }
+
+    if (this.cursors?.left && Phaser.Input.Keyboard.JustDown(this.cursors.left)) {
+      this.cycleCharacterClass(-1);
+      return;
+    }
+
+    if (this.cursors?.right && Phaser.Input.Keyboard.JustDown(this.cursors.right)) {
+      this.cycleCharacterClass(1);
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.n)) {
+      this.cyclePresetName();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.r)) {
+      this.createNewSaveSlot();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.l)) {
+      this.loadPreviousSaveSlot();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.y)) {
+      void this.copyCurrentSaveSlot();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.g)) {
+      void this.logoutAuthSession(false);
+      return;
+    }
+
+    const accountSlotIndex = this.getPressedAccountSaveSlotIndex();
+    if (accountSlotIndex !== undefined) {
+      this.loadAccountSaveSlot(accountSlotIndex);
+    }
+  }
+
+  private handleTitleNameKeyDown(event: KeyboardEvent) {
+    if (this.gameStarted || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      const nextName = Array.from(this.characterName).slice(0, -1).join("");
+      this.setCharacterName(nextName || "旅人");
+      return;
+    }
+
+    const shortcutKey = event.key.toLowerCase();
+    if (["enter", "arrowleft", "arrowright", "r", "l", "y", "n", "g", "1", "2", "3"].includes(shortcutKey)) {
+      return;
+    }
+
+    if (/^[\p{L}\p{N}_-]$/u.test(event.key) && Array.from(this.characterName).length < 12) {
+      this.setCharacterName(`${this.characterName}${event.key}`);
+    }
+  }
+
+  private setCharacterName(name: string) {
+    this.characterName = this.normalizeCharacterName(name);
+    this.localPlayerName = this.characterName;
+    this.saveCharacterDraft();
+    this.updateTitleScreen();
+  }
+
+  private normalizeCharacterName(name: string) {
+    const normalized = Array.from(name.trim().replace(/\s+/g, "")).slice(0, 12).join("");
+    return normalized || "旅人";
+  }
+
+  private cyclePresetName() {
+    const currentIndex = characterNamePresets.indexOf(this.characterName);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % characterNamePresets.length : 0;
+    this.setCharacterName(characterNamePresets[nextIndex]);
+    this.showTitleNotice(`角色名稱：${this.characterName}`);
+  }
+
+  private cycleCharacterClass(direction: -1 | 1) {
+    const currentIndex = characterClassOptions.findIndex((option) => option.className === this.selectedClass);
+    const nextIndex = (currentIndex + direction + characterClassOptions.length) % characterClassOptions.length;
+    this.selectedClass = characterClassOptions[nextIndex].className;
+    this.localClassName = this.selectedClass;
+    this.saveCharacterDraft();
+    this.updateTitleScreen();
+    this.showTitleNotice(`職業：${characterClassOptions[nextIndex].label}`);
+  }
+
+  private getSelectedClassOption() {
+    return characterClassOptions.find((option) => option.className === this.selectedClass) ?? characterClassOptions[0];
+  }
+
+  private getClassLabel(className: CharacterClass) {
+    return characterClassOptions.find((option) => option.className === className)?.label ?? "劍士";
+  }
+
+  private getPrimarySkill() {
+    return SKILL_DEFINITIONS[CLASS_SKILL_IDS[this.localClassName]];
+  }
+
+  private isCharacterClass(value: unknown): value is CharacterClass {
+    return characterClassOptions.some((option) => option.className === value);
+  }
+
+  private getCharacterDrafts() {
+    try {
+      return JSON.parse(window.localStorage.getItem(clientStorageKeys.characterDrafts) ?? "{}") as Record<
+        string,
+        {
+          name?: string;
+          className?: CharacterClass;
+        }
+      >;
+    } catch {
+      return {};
+    }
+  }
+
+  private loadCharacterDraft() {
+    const saveSlot = this.currentSaveSlot || this.getSaveSlot();
+    const draft = this.getCharacterDrafts()[saveSlot];
+    this.characterName = this.normalizeCharacterName(draft?.name ?? characterNamePresets[0]);
+    this.selectedClass = this.isCharacterClass(draft?.className) ? draft.className : "swordsman";
+    this.localPlayerName = this.characterName;
+    this.localClassName = this.selectedClass;
+  }
+
+  private saveCharacterDraft() {
+    const saveSlot = this.currentSaveSlot || this.getSaveSlot();
+    try {
+      const drafts = this.getCharacterDrafts();
+      drafts[saveSlot] = {
+        name: this.characterName,
+        className: this.selectedClass
+      };
+      window.localStorage.setItem(clientStorageKeys.characterDrafts, JSON.stringify(drafts));
+    } catch {
+      // localStorage can be unavailable; the active session still keeps the selected character data in memory.
+    }
+  }
+
+  private resetCharacterDraftForSlot() {
+    this.characterName = characterNamePresets[0];
+    this.selectedClass = "swordsman";
+    this.localPlayerName = this.characterName;
+    this.localClassName = this.selectedClass;
+    this.saveCharacterDraft();
+    this.updateTitleScreen();
+  }
+
+  private startGame() {
+    if (this.gameStarted) {
+      return;
+    }
+
+    this.characterName = this.normalizeCharacterName(this.characterName);
+    this.localPlayerName = this.characterName;
+    this.localClassName = this.selectedClass;
+    this.saveCharacterDraft();
+    this.removeGoogleButton();
+    this.gameStarted = true;
+    this.titleOverlay?.destroy(true);
+    this.titleOverlay = undefined;
+    this.titleSlotText = undefined;
+    this.titleCharacterText = undefined;
+    this.titleAuthText = undefined;
+    this.titleNoticeText = undefined;
+
+    this.addHud();
+    this.addPlayer();
+    this.rebuildMap(this.currentMap);
+    this.connect();
+  }
+
+  update() {
+    if (!this.keys || !this.cursors) {
+      return;
+    }
+
+    if (!this.gameStarted) {
+      this.handleTitleInput();
+      return;
+    }
+
+    if (!this.player) {
+      return;
+    }
+
+    if (this.localHp <= 0) {
+      this.player.setVelocityX(0);
+      this.promptText?.setVisible(false);
+      return;
+    }
+
+    this.updateActionPrompt();
+    this.updateZoneBanner();
+    this.updateQuestTargetIndicator();
+    this.updateQuestTracker();
+    this.updateGuidePanel();
+    this.updateBossAreaWarning();
+
+    const left = this.cursors.left.isDown || this.keys.a.isDown;
+    const right = this.cursors.right.isDown || this.keys.d.isDown;
+    const jump = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.keys.w);
+    const attack = Phaser.Input.Keyboard.JustDown(this.keys.k);
+    const skill = Phaser.Input.Keyboard.JustDown(this.keys.j);
+    const interact = Phaser.Input.Keyboard.JustDown(this.keys.e);
+    const buy = Phaser.Input.Keyboard.JustDown(this.keys.b);
+    const toggleInventory = Phaser.Input.Keyboard.JustDown(this.keys.i);
+    const toggleQuest = Phaser.Input.Keyboard.JustDown(this.keys.q);
+    const toggleShop = Phaser.Input.Keyboard.JustDown(this.keys.o);
+    const toggleCharacter = Phaser.Input.Keyboard.JustDown(this.keys.c);
+    const toggleSave = Phaser.Input.Keyboard.JustDown(this.keys.p);
+    const toggleSettings = Phaser.Input.Keyboard.JustDown(this.keys.v);
+    const toggleAudioMute = Phaser.Input.Keyboard.JustDown(this.keys.m);
+    const cycleShopItem = Phaser.Input.Keyboard.JustDown(this.keys.n);
+    const createNewSave = Phaser.Input.Keyboard.JustDown(this.keys.r);
+    const loadPreviousSave = Phaser.Input.Keyboard.JustDown(this.keys.l);
+    const copySaveSlot = Phaser.Input.Keyboard.JustDown(this.keys.y);
+    const toggleFeedback = Phaser.Input.Keyboard.JustDown(this.keys.t);
+    const returnSafe = Phaser.Input.Keyboard.JustDown(this.keys.h);
+    const logoutAuth = Phaser.Input.Keyboard.JustDown(this.keys.g);
+    const toggleAnnouncements = Phaser.Input.Keyboard.JustDown(this.keys.u);
+    const usePotion = Phaser.Input.Keyboard.JustDown(this.keys.one);
+    const equipWeapon = Phaser.Input.Keyboard.JustDown(this.keys.two);
+    const equipArmor = Phaser.Input.Keyboard.JustDown(this.keys.three);
+    const accountSlotIndex = usePotion ? 0 : equipWeapon ? 1 : equipArmor ? 2 : undefined;
+    let skillFired = false;
+
+    if (toggleInventory) {
+      this.inventoryPanelVisible = !this.inventoryPanelVisible;
+      this.syncPanelVisibility();
+    }
+
+    if (toggleQuest) {
+      this.questLogPanelVisible = !this.questLogPanelVisible;
+      this.syncPanelVisibility();
+      this.updateQuestLogPanel();
+    }
+
+    if (toggleCharacter) {
+      this.characterPanelVisible = !this.characterPanelVisible;
+      this.syncPanelVisibility();
+    }
+
+    if (toggleShop) {
+      if (this.openShop) {
+        this.shopPanelVisible = !this.shopPanelVisible;
+        this.syncPanelVisibility();
+      } else {
+        this.showDialogue("目前沒有開啟商店。");
+      }
+    }
+
+    if (toggleSave) {
+      this.savePanelVisible = !this.savePanelVisible;
+      this.syncPanelVisibility();
+      this.updateSavePanel();
+    }
+
+    if (toggleSettings) {
+      this.settingsPanelVisible = !this.settingsPanelVisible;
+      this.syncPanelVisibility();
+      this.updateSettingsPanel();
+    }
+
+    if (toggleAnnouncements) {
+      this.announcementPanelVisible = !this.announcementPanelVisible;
+      this.syncPanelVisibility();
+      this.updateAnnouncementPanel();
+    }
+
+    if (toggleAudioMute) {
+      this.audio.setMuted(!this.audio.isMuted());
+      this.updateSettingsPanel();
+      this.showDialogue(this.audio.isMuted() ? "音效已關閉。" : "音效已開啟。");
+    }
+
+    if (this.settingsPanelVisible && cycleShopItem) {
+      this.adjustAudioVolume(-0.1);
+      return;
+    }
+
+    if (this.settingsPanelVisible && buy) {
+      this.adjustAudioVolume(0.1);
+      return;
+    }
+
+    if (createNewSave && this.savePanelVisible) {
+      this.createNewSaveSlot();
+      return;
+    }
+
+    if (loadPreviousSave && this.savePanelVisible) {
+      this.loadPreviousSaveSlot();
+      return;
+    }
+
+    if (copySaveSlot && this.savePanelVisible) {
+      void this.copyCurrentSaveSlot();
+    }
+
+    if (toggleFeedback) {
+      this.toggleFeedbackForm();
+      return;
+    }
+
+    if (returnSafe) {
+      this.sendReturnSafe();
+      return;
+    }
+
+    if (logoutAuth && this.savePanelVisible) {
+      void this.logoutAuthSession(true);
+      return;
+    }
+
+    if (accountSlotIndex !== undefined && this.savePanelVisible) {
+      this.loadAccountSaveSlot(accountSlotIndex);
+      return;
+    }
+
+    if (cycleShopItem && this.openShop) {
+      this.selectedShopIndex = (this.selectedShopIndex + 1) % this.openShop.items.length;
+      this.updateShopPanel();
+    }
+
+    if (left) {
+      this.player.setVelocityX(-moveSpeed);
+      this.facing = "left";
+      this.player.setFlipX(true);
+    } else if (right) {
+      this.player.setVelocityX(moveSpeed);
+      this.facing = "right";
+      this.player.setFlipX(false);
+    } else {
+      this.player.setVelocityX(0);
+    }
+
+    if (jump && this.player.body.blocked.down) {
+      this.player.setVelocityY(jumpSpeed);
+    }
+
+    if (attack) {
+      this.audio.playAttackSound(false);
+      this.flashHitbox(false);
+      this.sendAttack(false);
+    }
+
+    if (skill) {
+      if (this.canUsePrimarySkill()) {
+        skillFired = true;
+        this.audio.playAttackSound(true, this.getPrimarySkill().id);
+        this.flashHitbox(true);
+        this.sendAttack(true);
+      } else {
+        this.showSkillBlocked();
+      }
+    }
+
+    if (interact && this.nearbyNpcId) {
+      this.sendNpcInteract(this.nearbyNpcId);
+    } else if (interact && this.nearbyInteractableId) {
+      this.sendMapInteract(this.nearbyInteractableId);
+    } else if (interact && this.nearbyPortalId) {
+      this.sendPortalEnter(this.nearbyPortalId);
+    }
+
+    if (buy && this.openShop && this.nearbyNpcId === this.openShop.npcId) {
+      const offer = this.openShop.items[this.selectedShopIndex] ?? this.openShop.items[0];
+      if (offer) {
+        this.sendShopBuy(this.openShop.npcId, offer.itemId, 1);
+      }
+    }
+
+    if (usePotion) {
+      this.tryUsePotion();
+    }
+
+    if (equipWeapon) {
+      this.tryEquipBestItem("weapon");
+    }
+
+    if (equipArmor) {
+      this.tryEquipBestItem("armor");
+    }
+
+    const animation = attack ? "attack" : skillFired ? "skill" : this.getAnimation(left || right);
+    this.updateLocalPlayerAnimation(animation);
+    this.updateSkillCooldownHud();
+    this.sendPlayerUpdate(animation);
+  }
+
+  private createGeneratedTextures() {
+    const g = this.add.graphics();
+
+    g.fillStyle(0xf4d7aa);
+    g.fillRect(12, 5, 12, 11);
+    g.fillStyle(0x2b1d2a);
+    g.fillRect(10, 2, 16, 5);
+    g.fillStyle(0x234f65);
+    g.fillRect(8, 16, 20, 18);
+    g.fillStyle(0xd1a14e);
+    g.fillRect(10, 19, 16, 4);
+    g.fillStyle(0x182336);
+    g.fillRect(10, 34, 7, 6);
+    g.fillRect(20, 34, 7, 6);
+    g.generateTexture("player", 36, 42);
+    g.clear();
+
+    g.fillStyle(0x6b2f2a);
+    g.fillRect(5, 10, 22, 10);
+    g.fillStyle(0xa84f3c);
+    g.fillRect(8, 7, 18, 12);
+    g.fillStyle(0xd8a957);
+    g.fillRect(23, 6, 4, 4);
+    g.fillStyle(0x2a1714);
+    g.fillRect(3, 13, 7, 3);
+    g.fillRect(11, 20, 4, 4);
+    g.fillRect(22, 20, 4, 4);
+    g.fillStyle(0xf2efe6);
+    g.fillRect(23, 10, 3, 3);
+    g.generateTexture("monster_field_rat_fallback", 34, 24);
+    g.clear();
+
+    g.fillStyle(0x49b8ad);
+    g.fillRect(7, 11, 26, 13);
+    g.fillStyle(0x72d8c9);
+    g.fillRect(11, 7, 18, 8);
+    g.fillStyle(0x123034);
+    g.fillRect(24, 13, 4, 4);
+    g.fillStyle(0x8fd9a8);
+    g.fillRect(13, 5, 8, 3);
+    g.generateTexture("monster_mist_slime_fallback", 40, 32);
+    g.clear();
+
+    g.fillStyle(0x7d2d26);
+    g.fillRect(26, 22, 44, 46);
+    g.fillStyle(0xb83a2e);
+    g.fillRect(20, 30, 56, 28);
+    g.fillStyle(0xeac373);
+    g.fillRect(34, 12, 28, 12);
+    g.fillStyle(0x122a20);
+    g.fillRect(44, 36, 8, 8);
+    g.fillStyle(0x8fd9a8);
+    g.fillRect(30, 68, 10, 12);
+    g.fillRect(58, 68, 10, 12);
+    g.generateTexture("monster_tide_watcher_fallback", 96, 96);
+    g.clear();
+
+    g.fillStyle(0x6d3f28);
+    g.fillRect(5, 10, 24, 11);
+    g.fillStyle(0xc0703e);
+    g.fillRect(8, 7, 19, 12);
+    g.fillStyle(0xf1c26d);
+    g.fillRect(24, 6, 4, 4);
+    g.fillStyle(0x261915);
+    g.fillRect(3, 14, 8, 3);
+    g.fillRect(12, 20, 4, 4);
+    g.fillRect(23, 20, 4, 4);
+    g.generateTexture("monster_warehouse_rat_fallback", 36, 26);
+    g.clear();
+
+    g.fillStyle(0x5a5447);
+    g.fillRect(13, 8, 24, 36);
+    g.fillStyle(0x9b7b52);
+    g.fillRect(9, 16, 32, 22);
+    g.fillStyle(0x8fd9a8);
+    g.fillRect(20, 11, 10, 5);
+    g.fillStyle(0x2a1f19);
+    g.fillRect(14, 44, 6, 8);
+    g.fillRect(30, 44, 6, 8);
+    g.generateTexture("monster_mist_puppet_fallback", 50, 56);
+    g.clear();
+
+    g.fillStyle(0x31494e);
+    g.fillRect(24, 18, 48, 54);
+    g.fillStyle(0x5d7f86);
+    g.fillRect(18, 28, 60, 32);
+    g.fillStyle(0xeac373);
+    g.fillRect(36, 10, 24, 12);
+    g.fillStyle(0xb83a2e);
+    g.fillRect(42, 36, 12, 10);
+    g.fillStyle(0x1b241f);
+    g.fillRect(30, 72, 10, 12);
+    g.fillRect(58, 72, 10, 12);
+    g.generateTexture("monster_warehouse_sentry_fallback", 96, 96);
+    g.clear();
+
+    g.destroy();
+  }
+
+  private loadOptionalSpriteSheets() {
+    this.load.on("loaderror", (file: { key?: string }) => {
+      if (file.key) {
+        this.failedAssetKeys.add(file.key);
+      }
+    });
+
+    for (const asset of optionalImageAssets) {
+      if (!asset.enabled) {
+        continue;
+      }
+
+      this.load.image(asset.key, asset.path);
+    }
+
+    for (const asset of optionalSpriteSheets) {
+      if (!asset.enabled) {
+        continue;
+      }
+
+      this.load.spritesheet(asset.key, asset.path, {
+        frameWidth: asset.frameWidth,
+        frameHeight: asset.frameHeight
+      });
+    }
+  }
+
+  private createOptionalSpriteAnimations() {
+    for (const asset of optionalSpriteSheets) {
+      if (!asset.enabled || !this.hasUsableTexture(asset.key) || this.anims.exists(asset.animationKey)) {
+        continue;
+      }
+
+      this.anims.create({
+        key: asset.animationKey,
+        frames: this.anims.generateFrameNumbers(asset.key, { start: 0, end: asset.frameCount - 1 }),
+        frameRate: asset.frameRate,
+        repeat: asset.repeat
+      });
+    }
+  }
+
+  private hasUsableTexture(key: string) {
+    return this.textures.exists(key) && !this.failedAssetKeys.has(key);
+  }
+
+  private captureMapObjects(render: () => void) {
+    const before = new Set(this.children.list);
+    render();
+    for (const object of this.children.list) {
+      if (!before.has(object)) {
+        this.mapObjects.push(object);
+      }
+    }
+  }
+
+  private clearMapObjects() {
+    for (const collider of this.platformColliders) {
+      collider.destroy();
+    }
+    this.platformColliders = [];
+
+    for (const object of this.mapObjects) {
+      object.destroy();
+    }
+    this.mapObjects = [];
+    this.clearChapterStateObjects();
+    this.interactableStatusTexts.clear();
+  }
+
+  private rebuildMap(map: GameMapData, x = map.playerSpawn.x, y = map.playerSpawn.y) {
+    this.clearMapObjects();
+    this.currentMap = map;
+    this.currentMapId = map.id;
+    this.physics.world.setBounds(0, 0, map.width, map.height);
+    this.cameras.main.setBounds(0, 0, map.width, map.height);
+    this.captureMapObjects(() => {
+      this.addBackground();
+      this.addNpcs();
+      this.addPlatforms();
+    });
+    this.player?.setPosition(x, y);
+    this.player?.setVelocity(0, 0);
+    this.currentZoneId = "";
+    this.bossEntryHintShown = false;
+    this.nearbyNpcId = "";
+    this.nearbyInteractableId = "";
+    this.nearbyDropId = "";
+    this.nearbyPortalId = "";
+    this.updateQuestTracker();
+    this.updateGuidePanel();
+    this.updateQuestTargetIndicator();
+    this.updateInteractableStatusLabels();
+    this.updateBossStatusPanel();
+    this.refreshChapterWorldState();
+  }
+
+  private addBackground() {
+    if (!this.addExternalBackgroundLayers()) {
+      this.addFallbackBackgroundArt();
+    }
+
+    for (const zone of this.currentMap.safeZones) {
+      this.add.rectangle(zone.x, zone.y, zone.width, zone.height, 0x5ac06f, 0.14);
+      this.add.text(zone.x - 52, zone.y - zone.height / 2 + 18, zone.name, {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.jade
+      });
+    }
+    this.addMapLandmarks();
+    for (const portal of this.currentMap.portals) {
+      this.add.circle(portal.x, portal.y - 26, 42, ColorHex.gold, 0.12);
+      this.add.rectangle(portal.x, portal.y - 20, 54, 72, ColorHex.deepTeal, 0.7).setStrokeStyle(2, ColorHex.gold, 0.75);
+      this.add.rectangle(portal.x, portal.y - 54, 6, 110, ColorHex.goldBright, 0.38);
+      this.add.text(portal.x - 42, portal.y - 78, portal.name, {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 3 }
+      });
+    }
+
+    this.add.text(54, 42, this.currentMap.name, {
+      fontFamily: uiFont,
+      fontSize: "26px",
+      color: ColorText.gold,
+      stroke: ColorText.ink,
+      strokeThickness: 4
+    });
+    this.add.text(54, 80, "左上方顯示操作鍵；掉落物碰到會自動拾取。", {
+      fontFamily: uiFont,
+      fontSize: "12px",
+      color: ColorText.sand,
+      fixedWidth: 560,
+      wordWrap: { width: 560 }
+    });
+  }
+
+  private addExternalBackgroundLayers() {
+    const layers = mapBackgroundLayers[this.currentMapId] ?? [];
+    const usableLayers = layers.filter((layer) => this.hasUsableTexture(layer.key));
+    if (usableLayers.length === 0) {
+      return false;
+    }
+
+    const mapCenterX = this.currentMap.width / 2;
+    this.add.rectangle(mapCenterX, 300, this.currentMap.width, 560, 0x15323b).setDepth(-70);
+
+    for (const layer of usableLayers) {
+      this.add
+        .tileSprite(mapCenterX, layer.y, this.currentMap.width, layer.height, layer.key)
+        .setScrollFactor(layer.scrollFactor)
+        .setAlpha(layer.alpha ?? 1)
+        .setDepth(layer.depth);
+    }
+
+    if (this.hasUsableTexture(mistOverlayTextureKey)) {
+      const mist = this.add
+        .tileSprite(mapCenterX, 250, this.currentMap.width, 190, mistOverlayTextureKey)
+        .setScrollFactor(0.62)
+        .setAlpha(0.42)
+        .setDepth(-40);
+      this.tweens.add({
+        targets: mist,
+        tilePositionX: 192,
+        duration: 12000,
+        repeat: -1
+      });
+    }
+
+    return true;
+  }
+
+  private addFallbackBackgroundArt() {
+    const mapCenterX = this.currentMap.width / 2;
+    this.add.rectangle(mapCenterX, 160, this.currentMap.width, 320, 0x15323b).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 300, this.currentMap.width, 90, 0x1a3b3a, 0.55).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 420, this.currentMap.width, 172, 0x1c4034).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 506, this.currentMap.width, 34, 0x32261c).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 522, this.currentMap.width, 20, ColorHex.woodPlank).setScrollFactor(1);
+
+    for (const x of [160, 540, 940, 1320, 1660, 2060, 2280]) {
+      this.add.circle(x, 88, 32, 0xd9e6e5, 0.18);
+      this.add.circle(x + 30, 78, 24, 0xd9e6e5, 0.12);
+      this.add.circle(x - 28, 80, 20, 0xd9e6e5, 0.1);
+    }
+
+    this.add.rectangle(330, 132, 190, 150, 0x8b4a3a);
+    this.add.rectangle(330, 45, 226, 45, 0x263047);
+    this.add.rectangle(330, 70, 246, 18, 0x1b2238);
+    this.add.rectangle(700, 172, 260, 190, 0x745f45);
+    this.add.rectangle(700, 70, 304, 54, 0x263047);
+    this.add.rectangle(700, 102, 324, 18, 0x1b2238);
+    this.add.rectangle(1510, 190, 120, 250, 0x6b6f7c);
+    this.add.rectangle(1510, 42, 150, 42, 0xf0d68a);
+    this.add.circle(1510, 42, 34, 0xf0d68a, 0.22);
+    this.add.rectangle(2010, 432, 290, 44, 0x315f58);
+    this.add.rectangle(2010, 454, 330, 16, 0x8eb8ac);
+
+    for (const x of [250, 420, 600, 780, 1020, 1280, 1600, 1840, 2140]) {
+      this.add.rectangle(x, 444, 6, 64, ColorHex.woodDark);
+      this.add.circle(x, 402, 26, ColorHex.gold, 0.16);
+      this.add.circle(x, 402, 13, ColorHex.vermilion, 0.95);
+      this.add.circle(x, 400, 6, ColorHex.goldBright, 0.9);
+    }
+  }
+
+  private addMapLandmarks() {
+    if (this.currentMapId === "mist-breakwater") {
+      this.addSignpost(430, 456, "前方：海霧凝膠");
+      this.addSignpost(1040, 456, "往右：潮眼平台");
+      this.addSignpost(1260, 456, "測潮學徒：回收甲片");
+      this.addSignpost(1510, 456, "菁英怪：潮眼守衛");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(620, 364, 260);
+      this.addMistVeil(1120, 338, 300);
+      this.add.rectangle(1580, 392, 330, 110, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.vermilion, 0.35);
+      this.add.circle(1580, 318, 34, ColorHex.goldBright, 0.18);
+      this.add.text(1482, 296, "第一章終點", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    this.addSignpost(1320, 456, "往右：燈塔營地");
+    this.addSignpost(1600, 456, "往右：潮汐林道");
+    this.addSignpost(1980, 456, "注意：海霧史萊姆");
+    this.addSignpost(2210, 456, "傳送：海霧堤道");
+  }
+
+  private addInteractableLandmark(interactable: MapInteractableData) {
+    if (interactable.kind === "lantern") {
+      this.addBreakwaterLantern(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 32, ColorHex.goldBright, 0.07).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else {
+      this.addTideGauge(interactable.x, interactable.y);
+      this.add.circle(interactable.x + 22, interactable.y - 52, 30, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.mistBlue, 0.3);
+    }
+
+    const status = this.add.text(interactable.x - 38, interactable.y - 118, "", {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.sand,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.interactableStatusTexts.set(interactable.id, status);
+  }
+
+  private addSignpost(x: number, y: number, text: string) {
+    this.add.rectangle(x, y, 10, 62, ColorHex.woodDark);
+    this.add.rectangle(x + 52, y - 34, 116, 34, ColorHex.woodPlank);
+    this.add.rectangle(x + 52, y - 34, 108, 26, ColorHex.inkGreenDeep).setStrokeStyle(1, ColorHex.gold, 0.5);
+    this.add.text(x + 2, y - 44, text, {
+      fontFamily: uiFont,
+      fontSize: "12px",
+      color: ColorText.parchment,
+      fixedWidth: 104,
+      align: "center",
+      wordWrap: { width: 104 }
+    });
+  }
+
+  private addBreakwaterLantern(x: number, y: number, label: string) {
+    this.add.rectangle(x, y, 7, 66, ColorHex.woodDark);
+    this.add.circle(x, y - 46, 24, ColorHex.goldBright, 0.13);
+    const glow = this.add.circle(x, y - 46, 13, ColorHex.goldBright, 0.3);
+    this.add.circle(x, y - 46, 7, ColorHex.vermilion, 0.95).setStrokeStyle(1, ColorHex.gold, 0.65);
+    this.add.text(x - 34, y - 86, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.gold,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: glow,
+      alpha: 0.08,
+      scale: 1.28,
+      duration: 900,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addTideGauge(x: number, y: number) {
+    this.add.rectangle(x, y - 34, 10, 92, ColorHex.woodDark);
+    this.add.rectangle(x + 24, y - 54, 52, 18, ColorHex.deepTeal, 0.92).setStrokeStyle(1, ColorHex.gold, 0.6);
+    this.add.rectangle(x + 24, y - 47, 34, 4, ColorHex.mistBlue, 0.82);
+    this.add.text(x - 18, y - 92, "潮位尺", {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+  }
+
+  private addMistVeil(x: number, y: number, width: number) {
+    const veil = this.add.ellipse(x, y, width, 46, 0xd9e6e5, 0.08);
+    const veil2 = this.add.ellipse(x + 44, y - 16, width * 0.64, 34, 0xd9e6e5, 0.06);
+    this.tweens.add({
+      targets: [veil, veil2],
+      x: "+=18",
+      alpha: 0.14,
+      duration: 2400,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private clearChapterStateObjects() {
+    for (const object of this.chapterStateObjects) {
+      this.tweens.killTweensOf(object);
+      object.destroy();
+    }
+    this.chapterStateObjects = [];
+  }
+
+  private addChapterStateObject<T extends Phaser.GameObjects.GameObject>(object: T) {
+    this.chapterStateObjects.push(object);
+    return object;
+  }
+
+  private refreshChapterWorldState() {
+    this.clearChapterStateObjects();
+    if (this.currentMapId !== "mist-breakwater") {
+      return;
+    }
+
+    this.addRepairedLanternEffects();
+    this.addWatcherClearEffects();
+    this.addChapterClearEffects();
+  }
+
+  private addRepairedLanternEffects() {
+    const lanternQuest = this.quests.get("breakwater-lantern-repair");
+    if (!lanternQuest || lanternQuest.status === "available") {
+      return;
+    }
+
+    const repaired = new Set(lanternQuest.status === "completed" ? ["lantern-west", "lantern-mid", "lantern-east"] : lanternQuest.interactedTargetIds ?? []);
+    for (const interactable of this.currentMap.interactables) {
+      if (interactable.kind !== "lantern" || !repaired.has(interactable.id)) {
+        continue;
+      }
+
+      const glow = this.addChapterStateObject(
+        this.add.circle(interactable.x, interactable.y - 46, 36, ColorHex.goldBright, 0.18).setDepth(16)
+      );
+      this.addChapterStateObject(
+        this.add.text(interactable.x - 30, interactable.y - 134, "燈已復明", {
+          fontFamily: uiFont,
+          fontSize: "11px",
+          color: ColorText.jade,
+          backgroundColor: "#10271fcc",
+          padding: { x: 5, y: 3 }
+        })
+      );
+      this.tweens.add({
+        targets: glow,
+        alpha: 0.08,
+        scale: 1.22,
+        duration: 1300,
+        yoyo: true,
+        repeat: -1
+      });
+    }
+
+    if (this.currentMapId === "old-harbor-warehouse") {
+      this.addSignpost(410, 456, "清理倉鼠");
+      this.addSignpost(930, 456, "霧化木偶區");
+      this.addSignpost(1510, 456, "倉庫巡弋者");
+      this.addMistVeil(760, 360, 260);
+      this.addMistVeil(1460, 350, 310);
+      this.add.rectangle(1740, 392, 360, 110, ColorHex.deepTeal, 0.12).setStrokeStyle(2, ColorHex.gold, 0.32);
+      this.add.text(1618, 296, "舊倉深處", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+    }
+  }
+
+  private addWatcherClearEffects() {
+    const watcher = this.quests.get("tide-watcher-core");
+    const shell = this.quests.get("watcher-shell-report");
+    if (watcher?.status !== "completed" && shell?.status !== "completed") {
+      return;
+    }
+
+    this.addChapterStateObject(
+      this.add.rectangle(1580, 392, 344, 118, ColorHex.jade, 0.08).setStrokeStyle(2, ColorHex.jade, 0.38)
+    );
+    this.addChapterStateObject(this.add.circle(1580, 318, 42, ColorHex.jade, 0.16));
+    this.addChapterStateObject(
+      this.add.text(1504, 272, "潮眼已平定", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.jade,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      })
+    );
+  }
+
+  private addChapterClearEffects() {
+    if (!this.isChapterOneCleared()) {
+      return;
+    }
+
+    this.addChapterStateObject(this.add.rectangle(900, 296, 1540, 42, ColorHex.jade, 0.06));
+    this.addChapterStateObject(
+      this.add.text(760, 274, "海霧穩定，第一章完成", {
+        fontFamily: uiFont,
+        fontSize: "15px",
+        color: ColorText.jade,
+        backgroundColor: "#10271fcc",
+        padding: { x: 8, y: 5 }
+      })
+    );
+  }
+
+  private isChapterOneCleared() {
+    return this.quests.get("tide-gauge-survey")?.status === "completed";
+  }
+
+  private addNpcs() {
+    for (const npc of this.currentMap.npcs) {
+      this.add.ellipse(npc.x, npc.y - 2, 30, 10, ColorHex.shadow, 0.4);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, ColorHex.teal);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, 0x000000, 0).setStrokeStyle(1, ColorHex.gold, 0.4);
+      this.add.rectangle(npc.x, npc.y - 50, 34, 10, ColorHex.gold);
+      this.add.circle(npc.x, npc.y - 54, 10, 0xf2c078);
+      this.add.text(npc.x - 42, npc.y - 86, npc.name, {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 3 }
+      });
+    }
+  }
+
+  private addPlatforms() {
+    if (!this.player) {
+      return;
+    }
+
+    for (const platformData of this.currentMap.platforms) {
+      if (this.hasUsableTexture(platformTextureKey)) {
+        this.add
+          .tileSprite(platformData.x, platformData.y, platformData.width, platformData.height, platformTextureKey)
+          .setDepth(18);
+        this.add
+          .rectangle(platformData.x, platformData.y - platformData.height / 2 + 3, platformData.width, 4, ColorHex.jade, 0.72)
+          .setDepth(19);
+      } else {
+        this.add.rectangle(platformData.x, platformData.y, platformData.width, platformData.height, 0x67442b);
+        this.add.rectangle(platformData.x, platformData.y - platformData.height / 2 + 3, platformData.width, 6, 0x2f7d44);
+      }
+
+      const platform = this.add.rectangle(
+        platformData.x,
+        platformData.y,
+        platformData.width,
+        platformData.height,
+        0x000000,
+        0
+      );
+      this.physics.add.existing(platform, true);
+
+      const body = platform.body as Phaser.Physics.Arcade.StaticBody;
+      body.setSize(platformData.width, platformData.height);
+      body.updateFromGameObject();
+      const collider = this.physics.add.collider(this.player, platform);
+      this.platformColliders.push(collider);
+    }
+  }
+
+  private addHud() {
+    this.currentSaveSlot = this.getSaveSlot();
+    this.previousSaveSlot = this.getPreviousSaveSlot();
+
+    const hudPlate = this.add.graphics().setScrollFactor(0);
+    hudPlate.fillStyle(ColorHex.shadow, 0.4);
+    hudPlate.fillRoundedRect(13, 13, 300, 188, 12);
+    hudPlate.fillStyle(ColorHex.woodDark, 0.96);
+    hudPlate.fillRoundedRect(11, 11, 300, 188, 12);
+    hudPlate.fillStyle(ColorHex.inkGreenDeep, 0.88);
+    hudPlate.fillRoundedRect(14, 14, 294, 182, 10);
+    hudPlate.lineStyle(1, ColorHex.gold, 0.42);
+    hudPlate.strokeRoundedRect(12.5, 12.5, 297, 185, 11);
+
+    this.statusText = this.add
+      .text(24, 20, "連線中...", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.sand
+      })
+      .setScrollFactor(0);
+
+    this.levelText = this.add
+      .text(24, 40, `${this.characterName} | 等級 1`, {
+        fontFamily: uiFont,
+        fontSize: "16px",
+        color: ColorText.gold,
+        fontStyle: "bold"
+      })
+      .setScrollFactor(0);
+
+    this.add
+      .text(24, 70, "經驗", { fontFamily: uiFont, fontSize: "12px", color: ColorText.jade })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.expBack = this.add
+      .rectangle(95, 70, 184, 12, ColorHex.barTrack)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0)
+      .setStrokeStyle(1, ColorHex.gold, 0.3);
+    this.expFill = this.add.rectangle(97, 70, 0, 8, ColorHex.exp).setOrigin(0, 0.5).setScrollFactor(0);
+    this.expText = this.add
+      .text(276, 70, "0/60", { fontFamily: uiFont, fontSize: "11px", color: ColorText.parchment })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+
+    this.add
+      .text(24, 98, "生命", { fontFamily: uiFont, fontSize: "12px", color: ColorText.riceWhite })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.hpBack = this.add
+      .rectangle(95, 98, 184, 12, ColorHex.barTrack)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0)
+      .setStrokeStyle(1, ColorHex.gold, 0.3);
+    this.hpFill = this.add.rectangle(97, 98, 180, 8, ColorHex.hp).setOrigin(0, 0.5).setScrollFactor(0);
+    this.hpText = this.add
+      .text(276, 98, "100/100", { fontFamily: uiFont, fontSize: "11px", color: ColorText.riceWhite })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+
+    this.add
+      .text(24, 122, "法力", { fontFamily: uiFont, fontSize: "12px", color: ColorText.mistBlue })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.mpBack = this.add
+      .rectangle(95, 122, 184, 12, ColorHex.barTrack)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0)
+      .setStrokeStyle(1, ColorHex.gold, 0.3);
+    this.mpFill = this.add.rectangle(97, 122, 180, 8, ColorHex.mp).setOrigin(0, 0.5).setScrollFactor(0);
+    this.mpText = this.add
+      .text(276, 122, `${maxPlayerMp}/${maxPlayerMp}`, { fontFamily: uiFont, fontSize: "11px", color: ColorText.riceWhite })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+
+    this.goldText = this.add
+      .text(24, 150, "金幣 0", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold
+      })
+      .setScrollFactor(0);
+
+    const primarySkill = this.getPrimarySkill();
+    this.skillText = this.add
+      .text(24, 172, `J ${primarySkill.name} | ${primarySkill.mpCost} 法力 | 可施放`, {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.mistBlue
+      })
+      .setScrollFactor(0);
+
+    this.add
+      .text(324, 18, "A/D 移動  W 跳躍  K 攻擊  J 技能  E 對話/互動  自動拾取  I 背包  Q 任務  C 角色  H 回安全區", {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.riceWhite,
+        backgroundColor: "#10271fe6",
+        padding: { x: 9, y: 5 },
+        fixedWidth: 610,
+        wordWrap: { width: 592 }
+      })
+      .setScrollFactor(0)
+      .setDepth(205);
+
+    this.inventoryPanel = this.addUiPanel(18, 194, 250, 154, "背包");
+    this.questPanel = this.addUiPanel(gameWidth - 292, 18, 274, 136, "任務");
+    this.questLogPanel = this.addUiPanel(114, 72, 600, 336, "任務日誌");
+    this.characterPanel = this.addUiPanel(gameWidth - 292, 168, 274, 152, "角色");
+    this.guidePanel = this.addUiPanel(gameWidth - 292, 168, 274, 122, "地圖 / 流程");
+    this.announcementPanel = this.addUiPanel(gameWidth / 2 - 210, 86, 420, 150, "公告");
+    this.shopPanel = this.addUiPanel(gameWidth / 2 - 190, gameHeight - 390, 380, 206, "商店");
+    this.savePanel = this.addUiPanel(18, 350, 306, 180, "存檔");
+    this.settingsPanel = this.addUiPanel(gameWidth - 310, 372, 292, 112, "設定");
+    this.shopPanel.container.setVisible(false);
+    this.savePanel.container.setVisible(false);
+    this.settingsPanel.container.setVisible(false);
+    this.syncPanelVisibility();
+    this.updateInventoryHud();
+    this.updateQuestTracker();
+    this.updateQuestLogPanel();
+    this.updateCharacterPanel();
+    this.updateGuidePanel();
+    this.updateAnnouncementPanel();
+    this.updateShopPanel();
+    this.updateSavePanel();
+    this.updateSettingsPanel();
+
+    this.zoneText = this.add
+      .text(gameWidth / 2, 30, "", {
+        fontFamily: uiFont,
+        fontSize: "18px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fdd",
+        padding: { x: 18, y: 8 },
+        fontStyle: "bold"
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(200)
+      .setVisible(false);
+
+    this.questTargetText = this.add
+      .text(gameWidth / 2, 62, "", {
+        fontFamily: uiFont,
+        fontSize: "14px",
+        color: ColorText.parchment,
+        backgroundColor: "#10271fdd",
+        padding: { x: 12, y: 6 },
+        fixedWidth: 360,
+        align: "center",
+        wordWrap: { width: 340 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(198)
+      .setVisible(false);
+
+    this.bossHpBack = this.add
+      .rectangle(gameWidth / 2, 104, 284, 14, ColorHex.barTrack)
+      .setScrollFactor(0)
+      .setDepth(198)
+      .setStrokeStyle(1, ColorHex.gold, 0.45)
+      .setVisible(false);
+    this.bossHpFill = this.add
+      .rectangle(gameWidth / 2 - 140, 104, 280, 10, ColorHex.vermilion)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0)
+      .setDepth(199)
+      .setVisible(false);
+    this.bossStatusText = this.add
+      .text(gameWidth / 2, 84, "", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fdd",
+        padding: { x: 10, y: 4 },
+        fixedWidth: 330,
+        align: "center",
+        wordWrap: { width: 310 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(199)
+      .setVisible(false);
+
+    this.dialogueBox = this.add.graphics().setScrollFactor(0).setDepth(200).setVisible(false);
+    {
+      const bw = 520;
+      const bh = 66;
+      const bx = gameWidth / 2 - bw / 2;
+      const by = 112;
+      this.dialogueBox.fillStyle(ColorHex.shadow, 0.45);
+      this.dialogueBox.fillRoundedRect(bx + 3, by + 5, bw, bh, 12);
+      this.dialogueBox.fillStyle(ColorHex.woodDark, 1);
+      this.dialogueBox.fillRoundedRect(bx, by, bw, bh, 12);
+      this.dialogueBox.fillStyle(ColorHex.inkGreenDeep, 0.97);
+      this.dialogueBox.fillRoundedRect(bx + 4, by + 4, bw - 8, bh - 8, 9);
+      this.dialogueBox.fillStyle(ColorHex.gold, 0.85);
+      this.dialogueBox.fillRect(bx + 14, by + 12, 3, bh - 24);
+      this.dialogueBox.lineStyle(1, ColorHex.gold, 0.55);
+      this.dialogueBox.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, 10);
+    }
+
+    this.dialogueText = this.add
+      .text(gameWidth / 2, 145, "", {
+        fontFamily: uiFont,
+        fontSize: "14px",
+        color: ColorText.parchment,
+        padding: { x: 12, y: 7 },
+        fixedWidth: 486,
+        align: "center",
+        wordWrap: { width: 462 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(201)
+      .setVisible(false);
+
+    this.promptText = this.add
+      .text(gameWidth / 2, gameHeight - 118, "E 對話", {
+        fontFamily: uiFont,
+        fontSize: "14px",
+        color: ColorText.ink,
+        backgroundColor: "#eac373",
+        padding: { x: 12, y: 6 },
+        fontStyle: "bold"
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(200)
+      .setVisible(false);
+  }
+
+  private addUiPanel(x: number, y: number, width: number, height: number, title: string): UiPanel {
+    return createUiPanel(this, x, y, width, height, title);
+  }
+
+  private syncPanelVisibility() {
+    this.inventoryPanel?.container.setVisible(this.inventoryPanelVisible);
+    this.questPanel?.container.setVisible(this.questPanelVisible);
+    this.questLogPanel?.container.setVisible(this.questLogPanelVisible && !this.settingsPanelVisible);
+    this.characterPanel?.container.setVisible(this.characterPanelVisible);
+    this.guidePanel?.container.setVisible(this.guidePanelVisible && !this.settingsPanelVisible && !this.characterPanelVisible);
+    this.announcementPanel?.container.setVisible(this.announcementPanelVisible && !this.settingsPanelVisible);
+    this.shopPanel?.container.setVisible(this.shopPanelVisible && Boolean(this.openShop));
+    this.savePanel?.container.setVisible(this.savePanelVisible);
+    this.settingsPanel?.container.setVisible(this.settingsPanelVisible);
+  }
+
+  private addPlayer() {
+    this.player = this.physics.add.sprite(this.currentMap.playerSpawn.x, this.currentMap.playerSpawn.y, this.getPlayerTextureKey("idle"));
+    this.player.setDepth(45);
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setSize(20, 34);
+    this.player.body.setOffset(8, 8);
+    this.updateLocalPlayerAnimation("idle");
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+    this.cameras.main.setBounds(0, 0, this.currentMap.width, this.currentMap.height);
+  }
+
+  private getPlayerTextureKey(animation: PlayerAnimation) {
+    const externalTextureKey = playerAnimationTextureKeys[animation];
+    return this.hasUsableTexture(externalTextureKey) ? externalTextureKey : fallbackPlayerTextureKey;
+  }
+
+  private updateLocalPlayerAnimation(animation: PlayerAnimation) {
+    if (!this.player) {
+      return;
+    }
+
+    this.applyPlayerSpriteAnimation(this.player, animation);
+  }
+
+  private applyPlayerSpriteAnimation(sprite: Phaser.GameObjects.Sprite, animation: PlayerAnimation) {
+    const textureKey = this.getPlayerTextureKey(animation);
+    const animationKey = playerAnimationKeys[animation];
+    if (this.hasUsableTexture(textureKey) && this.anims.exists(animationKey)) {
+      if (sprite.anims.currentAnim?.key !== animationKey) {
+        sprite.play(animationKey, true);
+      }
+      return;
+    }
+
+    if (sprite.texture.key !== fallbackPlayerTextureKey) {
+      sprite.setTexture(fallbackPlayerTextureKey);
+    }
+    sprite.stop();
+  }
+
+  private connect() {
+    const wsUrl = this.getWsUrl();
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.addEventListener("open", () => {
+      this.statusText?.setText(`已連線 | 存檔 ${this.formatSaveSlot(this.currentSaveSlot)}`);
+    });
+
+    this.ws.addEventListener("error", () => {
+      this.statusText?.setText("連線失敗，請確認伺服器是否啟動");
+      this.showToast("連線失敗，請確認伺服器或網路。");
+    });
+
+    this.ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data.toString()) as ServerMessage;
+
+      if (message.type === "session:welcome") {
+        this.playerId = message.playerId;
+        if (this.authSessionId && !message.authenticated) {
+          this.clearAuthSession(false);
+        }
+        if (message.saveSlot) {
+          this.currentSaveSlot = message.saveSlot;
+          this.persistCurrentSaveSlot(message.saveSlot);
+          this.updateSavePanel();
+          this.statusText?.setText(
+            message.authenticated
+              ? `已連線 | Google | 存檔 ${this.formatSaveSlot(message.saveSlot)}`
+              : `已連線 | 存檔 ${this.formatSaveSlot(message.saveSlot)}`
+          );
+        }
+        return;
+      }
+
+      if (message.type === "world:snapshot") {
+        const snapshotMap = getGameMap(message.mapId);
+        if (message.mapId !== this.currentMapId) {
+          this.rebuildMap(snapshotMap);
+        } else {
+          this.currentMapId = message.mapId;
+          this.currentMap = snapshotMap;
+        }
+        this.applySnapshot(message.players, message.monsters, message.itemDrops);
+        return;
+      }
+
+      if (message.type === "map:change" && message.playerId === this.playerId) {
+        this.rebuildMap(message.map, message.x, message.y);
+        this.showToast(`進入 ${message.map.name}`);
+        return;
+      }
+
+      if (message.type === "inventory:update" && message.playerId === this.playerId) {
+        this.inventory = message.slots;
+        this.updateInventoryHud();
+        return;
+      }
+
+      if (message.type === "equipment:update" && message.playerId === this.playerId) {
+        this.equipment = message.equipment;
+        this.localAttack = message.attack;
+        this.localDefense = message.defense;
+        this.updateInventoryHud();
+        this.updateCharacterPanel();
+        return;
+      }
+
+      if (message.type === "item:notice" && message.playerId === this.playerId) {
+        this.showToast(message.text);
+        if (message.healed && message.healed > 0) {
+          this.showHeal(message.healed);
+        }
+        return;
+      }
+
+      if (message.type === "quest:update" && message.playerId === this.playerId) {
+        this.quests.set(message.quest.id, message.quest);
+        this.updateQuestTracker();
+        this.updateGuidePanel();
+        this.updateQuestTargetIndicator();
+        this.updateInteractableStatusLabels();
+        this.updateBossStatusPanel();
+        this.refreshChapterWorldState();
+        this.maybeShowStageClear(message.quest);
+        return;
+      }
+
+      if (message.type === "quest:notice" && message.playerId === this.playerId) {
+        this.showToast(message.text);
+        if (message.rewardExp || message.rewardGold) {
+          this.showReward(message.rewardExp ?? 0, message.rewardGold ?? 0);
+        }
+        return;
+      }
+
+      if (message.type === "shop:open" && message.playerId === this.playerId) {
+        this.openShop = message.shop;
+        this.selectedShopIndex = 0;
+        this.shopPanelVisible = true;
+        this.updateShopPanel();
+        const offer = message.shop.items[0];
+        if (offer) {
+          this.showDialogue(
+            `${message.shop.name}：按 N 選商品，按 B 購買 ${ITEM_DEFINITIONS[offer.itemId].name} x${offer.quantity}。`
+          );
+        }
+        return;
+      }
+
+      if (message.type === "shop:notice" && message.playerId === this.playerId) {
+        this.showToast(message.text);
+        return;
+      }
+
+      if (message.type === "skill:notice" && message.playerId === this.playerId) {
+        this.localMp = message.mp;
+        if (message.cooldownRemainingMs && message.cooldownRemainingMs > 0) {
+          this.skillReadyAt = this.time.now + message.cooldownRemainingMs;
+        }
+        this.updateSkillCooldownHud();
+        this.showCompactNotice(message.text, ColorText.mistBlue);
+        return;
+      }
+
+      if (message.type === "combat:hit") {
+        this.showDamage(message.monsterId, message.damage, message.defeated, message.isSkill, message.skillId);
+        if (message.playerId === this.playerId) {
+          this.audio.playHitSound(message.isSkill, message.defeated, message.skillId);
+          if (message.isSkill) {
+            this.cameras.main.shake(90, 0.0014);
+          }
+          if (message.expGained > 0) {
+            this.showExpGain(message.expGained);
+          }
+        }
+        return;
+      }
+
+      if (message.type === "combat:miss" && message.playerId === this.playerId) {
+        this.showMiss(message.isSkill, message.skillId);
+        return;
+      }
+
+      if (message.type === "player:level-up" && message.playerId === this.playerId) {
+        this.showLevelUp(message.level);
+        return;
+      }
+
+      if (message.type === "player:damaged" && message.playerId === this.playerId) {
+        this.localHp = message.hp;
+        this.updateGuidePanel();
+        this.showPlayerDamage(message.damage, message.defeated);
+        return;
+      }
+
+      if (message.type === "player:respawn" && message.playerId === this.playerId) {
+        this.respawnLocalPlayer(message.x, message.y);
+        return;
+      }
+
+      if (message.type === "chat:notice" && message.playerId === this.playerId) {
+        this.showDialogue(message.text);
+        return;
+      }
+
+      if (message.type === "admin:notice") {
+        this.recordAnnouncement({
+          text: message.text,
+          category: message.category ?? "classroom",
+          sentAt: message.sentAt,
+          expiresAt: message.expiresAt
+        });
+        this.showDialogue(`教師公告：${message.text}`);
+      }
+    });
+
+    this.ws.addEventListener("close", () => {
+      this.statusText?.setText("伺服器連線中斷");
+      this.showToast("伺服器連線中斷，請重新整理或重新啟動伺服器。");
+    });
+  }
+
+  private getWsUrl() {
+    const params = new URLSearchParams({
+      slot: this.currentSaveSlot || this.getSaveSlot()
+    });
+    const sessionId = this.authSessionId || this.getAuthSessionId();
+    if (sessionId) {
+      params.set("session", sessionId);
+    }
+    const query = `?${params.toString()}`;
+    const host = window.location.hostname;
+    if (isDevFrontend()) {
+      return `ws://${host}:8787${query}`;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws${query}`;
+  }
+
+  private getAuthUrl() {
+    return this.getApiUrl("/auth/google");
+  }
+
+  private getApiUrl(path: string) {
+    const host = window.location.hostname;
+    if (isDevFrontend()) {
+      return `http://${host}:8787${path}`;
+    }
+
+    return `${window.location.origin}${path}`;
+  }
+
+  private loadStoredAuthSession() {
+    const storedSession = this.getStoredAuthSession();
+    this.authSessionId = storedSession?.sessionId ?? "";
+    this.authAccountLabel = this.formatAccountLabel(storedSession?.account);
+    this.authSaveSlots = storedSession?.saveSlots ?? [];
+  }
+
+  private getAuthSessionId() {
+    return this.getStoredAuthSession()?.sessionId ?? "";
+  }
+
+  private getStoredAuthSession(): StoredAuthSession | undefined {
+    try {
+      const raw = window.localStorage.getItem(clientStorageKeys.authSession);
+      if (!raw) {
+        return undefined;
+      }
+
+      const session = JSON.parse(raw) as {
+        sessionId?: unknown;
+        expiresAt?: unknown;
+        account?: AuthAccountSummary;
+        saveSlots?: AuthSaveSlotSummary[];
+      };
+      if (typeof session.sessionId !== "string") {
+        return undefined;
+      }
+
+      if (typeof session.expiresAt === "number" && session.expiresAt <= Date.now()) {
+        window.localStorage.removeItem(clientStorageKeys.authSession);
+        return undefined;
+      }
+
+      return {
+        sessionId: session.sessionId,
+        expiresAt:
+          typeof session.expiresAt === "number" ? session.expiresAt : Date.now() + 7 * 24 * 60 * 60 * 1000,
+        account: session.account,
+        saveSlots: session.saveSlots
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private persistAuthSession(
+    sessionId: string,
+    expiresAt: number | undefined,
+    account?: AuthAccountSummary,
+    saveSlots?: AuthSaveSlotSummary[]
+  ) {
+    try {
+      window.localStorage.setItem(
+        clientStorageKeys.authSession,
+        JSON.stringify({
+          sessionId,
+          expiresAt: expiresAt ?? Date.now() + 7 * 24 * 60 * 60 * 1000,
+          account,
+          saveSlots
+        })
+      );
+    } catch {
+      // The login still works for the current scene even if browser storage is blocked.
+    }
+  }
+
+  private getSaveSlot() {
+    try {
+      const existing = window.localStorage.getItem(clientStorageKeys.saveSlot);
+      if (existing) {
+        this.currentSaveSlot = existing;
+        return existing;
+      }
+
+      const nextSlot = this.generateSaveSlot();
+      window.localStorage.setItem(clientStorageKeys.saveSlot, nextSlot);
+      this.currentSaveSlot = nextSlot;
+      return nextSlot;
+    } catch {
+      this.currentSaveSlot = "browser-fallback-slot";
+      return "browser-fallback-slot";
+    }
+  }
+
+  private getPreviousSaveSlot() {
+    try {
+      return window.localStorage.getItem(clientStorageKeys.previousSaveSlot) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  private generateSaveSlot() {
+    return window.crypto?.randomUUID?.() ?? `slot-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  private persistCurrentSaveSlot(saveSlot: string) {
+    try {
+      window.localStorage.setItem(clientStorageKeys.saveSlot, saveSlot);
+    } catch {
+      // localStorage can be unavailable in privacy modes; the in-memory slot still works for this session.
+    }
+  }
+
+  private setSaveSlot(nextSaveSlot: string, rememberPrevious: boolean) {
+    const current = this.currentSaveSlot || this.getSaveSlot();
+    if (rememberPrevious && current && current !== nextSaveSlot) {
+      this.previousSaveSlot = current;
+    }
+
+    this.currentSaveSlot = nextSaveSlot;
+
+    try {
+      window.localStorage.setItem(clientStorageKeys.saveSlot, nextSaveSlot);
+      if (this.previousSaveSlot) {
+        window.localStorage.setItem(clientStorageKeys.previousSaveSlot, this.previousSaveSlot);
+      }
+    } catch {
+      // The game can continue with an in-memory save slot if browser storage is blocked.
+    }
+
+    this.updateSavePanel();
+    this.updateTitleScreen();
+  }
+
+  private createNewSaveSlot() {
+    const nextSlot = this.generateSaveSlot();
+    this.setSaveSlot(nextSlot, true);
+    this.resetCharacterDraftForSlot();
+    this.restartForSaveSlot(`已建立新存檔：${this.formatSaveSlot(nextSlot)}。`);
+  }
+
+  private loadPreviousSaveSlot() {
+    const previous = this.previousSaveSlot || this.getPreviousSaveSlot();
+    if (!previous) {
+      this.showSaveMessage("沒有上一個存檔。");
+      return;
+    }
+
+    const current = this.currentSaveSlot || this.getSaveSlot();
+    this.previousSaveSlot = current;
+    this.setSaveSlot(previous, false);
+    this.loadCharacterDraft();
+    this.updateTitleScreen();
+
+    try {
+      window.localStorage.setItem(clientStorageKeys.previousSaveSlot, current);
+    } catch {
+      // Keep the swap in memory if browser storage is blocked.
+    }
+
+    this.restartForSaveSlot(`已載入存檔：${this.formatSaveSlot(previous)}。`);
+  }
+
+  private restartForSaveSlot(message: string) {
+    if (!this.gameStarted) {
+      this.updateTitleScreen();
+      this.showTitleNotice(message);
+      return;
+    }
+
+    this.showDialogue(message);
+    this.ws?.close();
+    this.scene.restart();
+  }
+
+  private showSaveMessage(text: string) {
+    if (this.gameStarted) {
+      this.showDialogue(text);
+      return;
+    }
+
+    this.showTitleNotice(text);
+  }
+
+  private async copyCurrentSaveSlot() {
+    const saveSlot = this.currentSaveSlot || this.getSaveSlot();
+    if (!navigator.clipboard?.writeText) {
+      this.showSaveMessage("目前無法使用剪貼簿。");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(saveSlot);
+      this.showSaveMessage("已複製目前存檔代碼。");
+    } catch {
+      this.showSaveMessage("無法複製存檔代碼。");
+    }
+  }
+
+  private updateSavePanel() {
+    if (!this.savePanel) {
+      return;
+    }
+
+    const saveSlot = this.currentSaveSlot || this.getSaveSlot();
+    const previous = this.previousSaveSlot || this.getPreviousSaveSlot();
+    const accountLine = this.authSessionId ? `帳號：${this.authAccountLabel || "Google 已登入"}` : "帳號：未登入";
+    const accountSlots =
+      this.authSaveSlots.length > 0
+        ? this.authSaveSlots
+            .slice(0, 3)
+            .map((slot) => {
+              const name = slot.characterName ? `${slot.characterName}` : "未命名角色";
+              const level = slot.level ? ` Lv.${slot.level}` : "";
+              return `- ${name}${level} / ${this.formatSaveSlot(slot.saveSlot)}`;
+            })
+        : ["- 尚無帳號存檔摘要"];
+    this.savePanel.body.setText(
+      [
+        `目前：${this.formatSaveSlot(saveSlot)}`,
+        `上一個：${previous ? this.formatSaveSlot(previous) : "無"}`,
+        accountLine,
+        ...accountSlots,
+        "",
+        "P 關閉 | R 新角色",
+        "L 上一個 | Y 複製 | G 登出"
+      ].join("\n")
+    );
+  }
+
+  private formatSaveSlot(saveSlot: string) {
+    if (saveSlot.length <= 12) {
+      return saveSlot;
+    }
+
+    return `${saveSlot.slice(0, 8)}...${saveSlot.slice(-4)}`;
+  }
+
+  private applySnapshot(players: PlayerSnapshot[], monsters: MonsterSnapshot[], itemDrops: ItemDropSnapshot[]) {
+    this.applyPlayerSnapshot(players);
+    this.applyMonsterSnapshot(monsters);
+    this.applyItemDropSnapshot(itemDrops);
+  }
+
+  private applyPlayerSnapshot(players: PlayerSnapshot[]) {
+    for (const player of players) {
+      if (player.id === this.playerId) {
+        this.updateHud(player);
+        continue;
+      }
+
+      let marker = this.remotePlayers.get(player.id);
+      if (!marker) {
+        marker = this.add.sprite(player.x, player.y, this.getPlayerTextureKey(player.animation));
+        marker.setTint(0xd9a441);
+        marker.setDepth(42);
+        this.remotePlayers.set(player.id, marker);
+      }
+
+      marker.setPosition(player.x, player.y);
+      marker.setFlipX(player.facing === "left");
+      marker.setAlpha(player.hp > 0 ? 1 : 0.35);
+      this.applyPlayerSpriteAnimation(marker, player.animation);
+    }
+
+    const liveIds = new Set(players.map((player) => player.id));
+    for (const [id, marker] of this.remotePlayers) {
+      if (!liveIds.has(id)) {
+        marker.destroy();
+        this.remotePlayers.delete(id);
+      }
+    }
+  }
+
+  private applyMonsterSnapshot(monsters: MonsterSnapshot[]) {
+    this.monsterSnapshots = new Map(monsters.map((monster) => [monster.id, monster]));
+    for (const monster of monsters) {
+      const view = this.getOrCreateMonsterView(monster);
+      view.body.setPosition(monster.x, monster.y);
+      view.body.setAlpha(monster.alive ? 1 : 0.25);
+      if (view.body instanceof Phaser.GameObjects.Sprite) {
+        view.body.setFlipX(monster.facing === "left");
+        this.applyMonsterSpriteAnimation(view, monster.kind);
+      }
+      view.eye?.setPosition(monster.x + 8, monster.y - 4);
+      view.eye?.setAlpha(monster.alive ? 1 : 0.1);
+      view.hpBack.setPosition(monster.x, monster.y - 28);
+      view.hpFill.setPosition(monster.x - 18, monster.y - 28);
+      view.label.setPosition(monster.x - 28, monster.y - 52);
+      view.label.setAlpha(monster.alive ? 1 : 0.3);
+
+      const hpRatio = monster.maxHp === 0 ? 0 : Phaser.Math.Clamp(monster.hp / monster.maxHp, 0, 1);
+      view.hpFill.setDisplaySize(36 * hpRatio, 5);
+      view.hpFill.setAlpha(monster.alive ? 1 : 0);
+      view.hpBack.setAlpha(monster.alive ? 1 : 0);
+
+      if (monster.hitAt > view.lastHitAt) {
+        view.lastHitAt = monster.hitAt;
+        this.flashMonsterBody(view, monster.kind);
+        this.time.delayedCall(80, () => {
+          this.restoreMonsterBody(view, monster.kind);
+        });
+      }
+    }
+
+    const liveIds = new Set(monsters.map((monster) => monster.id));
+    for (const [id, view] of this.monsters) {
+      if (!liveIds.has(id)) {
+        view.body.destroy();
+        view.eye?.destroy();
+        view.hpBack.destroy();
+        view.hpFill.destroy();
+        view.label.destroy();
+        this.monsters.delete(id);
+      }
+    }
+    this.updateBossStatusPanel();
+  }
+
+  private applyItemDropSnapshot(itemDrops: ItemDropSnapshot[]) {
+    for (const drop of itemDrops) {
+      const view = this.getOrCreateItemDropView(drop);
+      view.body.setPosition(drop.x, drop.y - 10);
+      view.shine.setPosition(drop.x, drop.y - 18);
+      view.label.setPosition(drop.x - 44, drop.y - 44);
+    }
+
+    const liveIds = new Set(itemDrops.map((drop) => drop.id));
+    for (const [id, view] of this.itemDrops) {
+      if (!liveIds.has(id)) {
+        view.body.destroy();
+        view.shine.destroy();
+        view.label.destroy();
+        this.pendingPickupIds.delete(id);
+        this.itemDrops.delete(id);
+      }
+    }
+  }
+
+  private getOrCreateItemDropView(drop: ItemDropSnapshot) {
+    let view = this.itemDrops.get(drop.id);
+    if (view) {
+      return view;
+    }
+
+    const body = this.add
+      .rectangle(drop.x, drop.y - 10, 24, 18, ColorHex.vermilion)
+      .setStrokeStyle(1, ColorHex.gold, 0.6)
+      .setDepth(30);
+    const shine = this.add.circle(drop.x, drop.y - 18, 4, ColorHex.goldBright, 0.9).setDepth(31);
+    const label = this.add.text(drop.x - 44, drop.y - 44, `${drop.name} x${drop.quantity}`, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.gold,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    }).setDepth(31);
+
+    this.tweens.add({
+      targets: [body, shine],
+      y: "-=3",
+      duration: 520,
+      yoyo: true,
+      repeat: -1
+    });
+
+    view = { body, shine, label };
+    this.itemDrops.set(drop.id, view);
+    return view;
+  }
+
+  private getOrCreateMonsterView(monster: MonsterSnapshot) {
+    let view = this.monsters.get(monster.id);
+    if (view) {
+      return view;
+    }
+
+    const body = this.add.sprite(monster.x, monster.y, this.getMonsterTextureKey(monster.kind)).setDepth(34);
+    body.setDisplaySize(...this.getMonsterDisplaySize(monster.kind));
+    const eye = this.shouldUseMonsterEye(monster.kind) ? this.add.circle(monster.x + 8, monster.y - 4, 3, 0xf2efe6).setDepth(35) : undefined;
+    const hpBack = this.add
+      .rectangle(monster.x, monster.y - 28, 40, 7, ColorHex.barTrack)
+      .setOrigin(0.5)
+      .setStrokeStyle(1, ColorHex.gold, 0.4)
+      .setDepth(36);
+    const hpFill = this.add.rectangle(monster.x - 18, monster.y - 28, 36, 5, ColorHex.hp).setOrigin(0, 0.5).setDepth(37);
+    const label = this.add.text(monster.x - 28, monster.y - 54, monster.name, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.parchment,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    }).setDepth(37);
+
+    if (eye) {
+      this.tweens.add({
+        targets: eye,
+        y: eye.y - 2,
+        duration: 360,
+        yoyo: true,
+        repeat: -1
+      });
+    }
+
+    view = { body, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt };
+    this.monsters.set(monster.id, view);
+    return view;
+  }
+
+  private getMonsterColor(kind: MonsterSnapshot["kind"]) {
+    if (kind === "tide-watcher") {
+      return ColorHex.vermilion;
+    }
+
+    if (kind === "warehouse-sentry") {
+      return ColorHex.deepTeal;
+    }
+
+    if (kind === "mist-puppet") {
+      return 0x9b7b52;
+    }
+
+    if (kind === "warehouse-rat") {
+      return 0xc0703e;
+    }
+
+    return kind === "mist-slime" ? 0x49b8ad : 0xa84f3c;
+  }
+
+  private getMonsterTextureKey(kind: MonsterSnapshot["kind"]) {
+    const externalTextureKey = monsterTextureKeys[kind];
+    return this.hasUsableTexture(externalTextureKey) ? externalTextureKey : monsterFallbackTextureKeys[kind];
+  }
+
+  private getMonsterDisplaySize(kind: MonsterSnapshot["kind"]): [number, number] {
+    if (kind === "tide-watcher" || kind === "warehouse-sentry") {
+      return [86, 86];
+    }
+
+    if (kind === "mist-puppet") {
+      return [46, 52];
+    }
+
+    return kind === "mist-slime" ? [40, 32] : [36, 26];
+  }
+
+  private shouldUseMonsterEye(kind: MonsterSnapshot["kind"]) {
+    return !this.hasUsableTexture(monsterTextureKeys[kind]) && kind === "tide-watcher";
+  }
+
+  private applyMonsterSpriteAnimation(view: MonsterView, kind: MonsterSnapshot["kind"]) {
+    if (!(view.body instanceof Phaser.GameObjects.Sprite)) {
+      return;
+    }
+
+    const animationKey = monsterAnimationKeys[kind];
+    if (this.hasUsableTexture(monsterTextureKeys[kind]) && this.anims.exists(animationKey)) {
+      if (view.body.anims.currentAnim?.key !== animationKey) {
+        view.body.play(animationKey, true);
+      }
+      return;
+    }
+
+    view.body.stop();
+  }
+
+  private flashMonsterBody(view: MonsterView, kind: MonsterSnapshot["kind"]) {
+    if (view.body instanceof Phaser.GameObjects.Sprite) {
+      view.body.setTint(0xf2efe6);
+      return;
+    }
+
+    view.body.setFillStyle(0xf2efe6);
+  }
+
+  private restoreMonsterBody(view: MonsterView, kind: MonsterSnapshot["kind"]) {
+    if (view.body instanceof Phaser.GameObjects.Sprite) {
+      view.body.clearTint();
+      return;
+    }
+
+    view.body.setFillStyle(this.getMonsterColor(kind));
+  }
+
+  private sendPlayerUpdate(animation: PlayerAnimation) {
+    const now = this.time.now;
+    if (now - this.lastPlayerUpdateAt < 1000 / 20) {
+      return;
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.player || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.lastPlayerUpdateAt = now;
+    this.ws.send(
+      JSON.stringify({
+        type: "player:update",
+        player: {
+          id: this.playerId,
+          name: this.characterName,
+          className: this.selectedClass,
+          mapId: this.currentMapId,
+          x: Math.round(this.player.x),
+          y: Math.round(this.player.y),
+          facing: this.facing,
+          animation
+        }
+      })
+    );
+  }
+
+  private sendAttack(isSkill: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    const primarySkill = this.getPrimarySkill();
+    this.ws.send(
+      JSON.stringify({
+        type: "combat:attack",
+        attackId: `${this.playerId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        isSkill,
+        skillId: isSkill ? primarySkill.id : undefined
+      })
+    );
+  }
+
+  private sendNpcInteract(npcId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "npc:interact",
+        npcId
+      })
+    );
+  }
+
+  private sendMapInteract(interactableId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "map:interact",
+        interactableId
+      })
+    );
+  }
+
+  private sendPortalEnter(portalId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now < this.portalReadyAt) {
+      this.showToast("傳送門正在穩定中。");
+      return;
+    }
+    this.portalReadyAt = now + 900;
+
+    this.ws.send(
+      JSON.stringify({
+        type: "portal:enter",
+        portalId
+      })
+    );
+  }
+
+  private sendReturnSafe() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      this.showToast("目前無法回安全區，請確認連線與角色狀態。");
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "player:return-safe"
+      })
+    );
+    this.showToast("正在返回安全區...");
+  }
+
+  private sendItemPickup(dropId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "item:pickup",
+        dropId
+      })
+    );
+  }
+
+  private tryAutoPickupDrop(dropId: string) {
+    if (this.pendingPickupIds.has(dropId)) {
+      return;
+    }
+
+    this.pendingPickupIds.add(dropId);
+    this.sendItemPickup(dropId);
+    this.time.delayedCall(900, () => {
+      this.pendingPickupIds.delete(dropId);
+    });
+  }
+
+  private tryUsePotion() {
+    if (!this.hasInventoryItem("small-hp-potion")) {
+      this.showCompactNotice("沒有小型補血藥水", ColorText.sand);
+      return;
+    }
+
+    this.sendUseItem("small-hp-potion");
+  }
+
+  private tryEquipItem(itemId: ItemId) {
+    const item = ITEM_DEFINITIONS[itemId];
+    if (!item || item.kind !== "equipment" || !item.equipmentSlot) {
+      return;
+    }
+
+    if (!this.hasInventoryItem(itemId) && this.equipment[item.equipmentSlot] !== itemId) {
+      this.showCompactNotice(`背包沒有 ${item.name}`, ColorText.sand);
+      return;
+    }
+
+    this.sendEquipItem(itemId);
+  }
+
+  private tryEquipBestItem(slot: "weapon" | "armor") {
+    const candidates = this.inventory
+      .filter((inventorySlot) => {
+        const item = ITEM_DEFINITIONS[inventorySlot.itemId];
+        return inventorySlot.quantity > 0 && item.kind === "equipment" && item.equipmentSlot === slot;
+      })
+      .sort((a, b) => this.getEquipmentScore(b.itemId) - this.getEquipmentScore(a.itemId));
+
+    const candidate = candidates[0];
+    if (!candidate) {
+      this.showCompactNotice(slot === "weapon" ? "背包沒有可裝備武器" : "背包沒有可裝備防具", ColorText.sand);
+      return;
+    }
+
+    if (this.equipment[slot] === candidate.itemId) {
+      this.showCompactNotice(`${ITEM_DEFINITIONS[candidate.itemId].name} 已裝備`, ColorText.jade);
+      return;
+    }
+
+    this.sendEquipItem(candidate.itemId);
+  }
+
+  private getEquipmentScore(itemId: ItemId) {
+    const item = ITEM_DEFINITIONS[itemId];
+    return (item.attackBonus ?? 0) + (item.defenseBonus ?? 0);
+  }
+
+  private hasInventoryItem(itemId: ItemId) {
+    return (this.inventory.find((slot) => slot.itemId === itemId)?.quantity ?? 0) > 0;
+  }
+
+  private sendUseItem(itemId: ItemId) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "inventory:use",
+        itemId
+      })
+    );
+  }
+
+  private sendEquipItem(itemId: ItemId) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "inventory:equip",
+        itemId
+      })
+    );
+  }
+
+  private sendShopBuy(npcId: string, itemId: ItemId, quantity: number) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.playerId || this.localHp <= 0) {
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "shop:buy",
+        npcId,
+        itemId,
+        quantity
+      })
+    );
+  }
+
+  private getAnimation(isMoving: boolean): PlayerAnimation {
+    if (!this.player?.body.blocked.down) {
+      return "jump";
+    }
+
+    return isMoving ? "run" : "idle";
+  }
+
+  private flashHitbox(isSkill: boolean) {
+    if (!this.player) {
+      return;
+    }
+
+    if (!isSkill) {
+      this.flashBasicAttack();
+      return;
+    }
+
+    if (this.localClassName === "swordsman") {
+      this.flashSwordCleave();
+      return;
+    }
+
+    if (this.localClassName === "talisman") {
+      this.flashSpiritTalisman();
+      return;
+    }
+
+    this.flashHunterShot();
+  }
+
+  private flashBasicAttack() {
+    if (!this.player) {
+      return;
+    }
+
+    const x = this.player.x + (this.facing === "right" ? 42 : -42);
+    const hitbox = this.add.rectangle(x, this.player.y, 58, 34, 0xffd36d, 0.45);
+    this.tweens.add({
+      targets: hitbox,
+      alpha: 0,
+      duration: 140,
+      onComplete: () => hitbox.destroy()
+    });
+  }
+
+  private flashSwordCleave() {
+    if (!this.player) {
+      return;
+    }
+
+    const direction = this.facing === "right" ? 1 : -1;
+    const x = this.player.x + direction * 52;
+    const y = this.player.y - 4;
+    const slash = this.add.container(x, y);
+    const outer = this.add.rectangle(0, 0, 24, 96, 0x8fe7ff, 0.62).setAngle(direction * -30);
+    const inner = this.add.rectangle(direction * 8, 0, 9, 82, 0xf8fdff, 0.86).setAngle(direction * -30);
+    const spark = this.add.circle(direction * 24, -26, 9, 0xfff0a6, 0.82);
+    slash.add([outer, inner, spark]);
+    slash.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: slash,
+      x: x + direction * 28,
+      scaleX: 1.35,
+      scaleY: 0.78,
+      alpha: 0,
+      duration: 180,
+      ease: "Quad.easeOut",
+      onComplete: () => slash.destroy()
+    });
+  }
+
+  private flashSpiritTalisman() {
+    if (!this.player) {
+      return;
+    }
+
+    const direction = this.facing === "right" ? 1 : -1;
+    const startX = this.player.x + direction * 30;
+    const y = this.player.y - 10;
+    const skill = this.getPrimarySkill();
+    const travel = Math.min(skill.range, 140) * direction;
+    const charm = this.add.container(startX, y);
+    const trail = this.add.rectangle(-direction * 24, 0, 52, 6, 0x70ddff, 0.32);
+    const paper = this.add.rectangle(0, 0, 18, 26, 0xffe7ad, 0.96);
+    const seal = this.add.text(-6, -12, "符", {
+      fontSize: "16px",
+      color: "#9b2f32",
+      stroke: "#fff2c7",
+      strokeThickness: 1
+    });
+    const glow = this.add.circle(0, 0, 18, 0x7ed7ff, 0.18);
+    paper.setStrokeStyle(2, 0x9b2f32, 0.85);
+    charm.add([glow, trail, paper, seal]);
+    charm.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: charm,
+      x: startX + travel,
+      angle: direction * 12,
+      alpha: 0,
+      duration: 260,
+      ease: "Sine.easeOut",
+      onComplete: () => charm.destroy()
+    });
+  }
+
+  private flashHunterShot() {
+    if (!this.player) {
+      return;
+    }
+
+    const primarySkill = this.getPrimarySkill();
+    const direction = this.facing === "right" ? 1 : -1;
+    const width = Math.min(primarySkill.range, 150);
+    const startX = this.player.x + direction * (width / 2 + 22);
+    const y = this.player.y - 7;
+    const shot = this.add.container(startX, y);
+    const line = this.add.rectangle(0, 0, width, 5, 0xd9f0ff, 0.78);
+    const core = this.add.rectangle(direction * 12, 0, width * 0.72, 2, 0xfff4b8, 0.94);
+    const tip = this.add.triangle(
+      direction * (width / 2 + 8),
+      0,
+      0,
+      0,
+      18,
+      7,
+      0,
+      14,
+      0xd9f0ff,
+      0.9
+    );
+    tip.setAngle(direction === 1 ? 0 : 180);
+    shot.add([line, core, tip]);
+    shot.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: shot,
+      x: startX + direction * 24,
+      alpha: 0,
+      scaleX: 1.1,
+      duration: 150,
+      ease: "Quad.easeOut",
+      onComplete: () => shot.destroy()
+    });
+  }
+
+  private showDamage(monsterId: string, damage: number, defeated: boolean, isSkill = false, skillId?: SkillId) {
+    const view = this.monsters.get(monsterId);
+    if (!view) {
+      return;
+    }
+
+    if (isSkill) {
+      this.flashSkillImpact(view.body.x, view.body.y, skillId);
+    }
+
+    const text = this.add.text(view.body.x - 10, view.body.y - 72, defeated ? "擊破" : `-${damage}`, {
+      fontFamily: uiFont,
+      fontSize: defeated ? "20px" : "17px",
+      color: defeated ? ColorText.riceWhite : isSkill ? ColorText.mistBlue : ColorText.gold,
+      stroke: ColorText.ink,
+      strokeThickness: 4
+    });
+    this.tweens.add({
+      targets: text,
+      y: text.y - 28,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => text.destroy()
+    });
+  }
+
+  private flashSkillImpact(x: number, y: number, skillId?: SkillId) {
+    const color =
+      skillId === "sword-cleave" ? 0xa8edff : skillId === "spirit-talisman" ? 0xffd36d : 0xd9f0ff;
+    const ring = this.add.circle(x, y - 18, skillId === "spirit-talisman" ? 24 : 18, color, 0.24);
+    const spark = this.add.circle(x, y - 18, 7, 0xffffff, 0.62);
+    ring.setStrokeStyle(2, color, 0.9);
+    ring.setBlendMode(Phaser.BlendModes.ADD);
+    spark.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: [ring, spark],
+      scale: 1.7,
+      alpha: 0,
+      duration: 230,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        ring.destroy();
+        spark.destroy();
+      }
+    });
+  }
+
+  private showMiss(isSkill = false, skillId?: SkillId) {
+    this.audio.playMissSound(isSkill, skillId);
+    if (!this.player) {
+      return;
+    }
+
+    const direction = this.facing === "right" ? 1 : -1;
+    const color = isSkill ? this.getSkillEffectColor(skillId) : "#d8cfae";
+    const x = this.player.x + direction * 58;
+    const y = this.player.y - 52;
+    const text = this.add.text(x - 24, y, isSkill ? "未命中" : "落空", {
+      fontSize: "14px",
+      color,
+      stroke: "#181018",
+      strokeThickness: 3
+    });
+    const marker = this.add.circle(x, y + 12, isSkill ? 16 : 11, Phaser.Display.Color.HexStringToColor(color).color, 0.18);
+    marker.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color, 0.72);
+    marker.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: [text, marker],
+      x: `+=${direction * 16}`,
+      y: "-=18",
+      alpha: 0,
+      duration: 420,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        text.destroy();
+        marker.destroy();
+      }
+    });
+  }
+
+  private getSkillEffectColor(skillId?: SkillId) {
+    if (skillId === "sword-cleave") {
+      return "#a8edff";
+    }
+
+    if (skillId === "spirit-talisman") {
+      return "#ffd36d";
+    }
+
+    if (skillId === "hunter-shot") {
+      return "#d9f0ff";
+    }
+
+    return "#7ed7ff";
+  }
+
+  private adjustAudioVolume(delta: number) {
+    this.audio.adjustVolume(delta);
+    this.updateSettingsPanel();
+    this.showDialogue(`音量：${Math.round(this.audio.getVolume() * 100)}%`);
+    this.audio.playVolumePreview();
+  }
+
+  private updateSettingsPanel() {
+    if (!this.settingsPanel) {
+      return;
+    }
+
+    this.settingsPanel.body.setText(
+      [
+        `音效：${this.audio.isMuted() ? "關閉" : "開啟"}`,
+        `音量：${Math.round(this.audio.getVolume() * 100)}%`,
+        "",
+        "V 關閉 | M 靜音",
+        "N 降低 | B 提高"
+      ].join("\n")
+    );
+  }
+
+  private updateHud(player: PlayerSnapshot) {
+    this.localHp = player.hp;
+    this.localMp = player.mp;
+    this.localMaxHp = player.maxHp;
+    this.localMaxMp = player.maxMp;
+    this.localAttack = player.attack;
+    this.localDefense = player.defense;
+    this.localPlayerName = player.name;
+    this.localClassName = player.className;
+    this.levelText?.setText(`${player.name} | 等級 ${player.level}`);
+    this.expText?.setText(`${player.exp}/${player.expToNext}`);
+    this.hpText?.setText(`${player.hp}/${player.maxHp}`);
+    this.mpText?.setText(`${Math.floor(player.mp)}/${player.maxMp}`);
+    this.goldText?.setText(`金幣 ${player.gold}`);
+
+    const ratio = Phaser.Math.Clamp(player.exp / player.expToNext, 0, 1);
+    this.expFill?.setDisplaySize(180 * ratio, 8);
+
+    const hpRatio = Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1);
+    this.hpFill?.setDisplaySize(180 * hpRatio, 8);
+
+    const mpRatio = Phaser.Math.Clamp(player.mp / player.maxMp, 0, 1);
+    this.mpFill?.setDisplaySize(180 * mpRatio, 8);
+    this.updateSkillCooldownHud();
+    this.updateCharacterPanel();
+    this.player?.setAlpha(player.hp > 0 ? 1 : 0.35);
+  }
+
+  private getSkillCooldownRemainingMs() {
+    return Math.max(0, this.skillReadyAt - this.time.now);
+  }
+
+  private canUsePrimarySkill() {
+    const primarySkill = this.getPrimarySkill();
+    return this.localMp >= primarySkill.mpCost && this.getSkillCooldownRemainingMs() <= 0;
+  }
+
+  private showSkillBlocked() {
+    const primarySkill = this.getPrimarySkill();
+    const remainingMs = this.getSkillCooldownRemainingMs();
+    this.audio.playBlockedSound();
+    if (remainingMs > 0) {
+      this.showCompactNotice(`${primarySkill.name} 冷卻中 ${(remainingMs / 1000).toFixed(1)} 秒`, ColorText.sand);
+      return;
+    }
+
+    this.showCompactNotice(`${primarySkill.name} 需要 ${primarySkill.mpCost} 法力`, ColorText.danger);
+  }
+
+  private updateSkillCooldownHud() {
+    if (!this.skillText) {
+      return;
+    }
+
+    const remainingMs = this.getSkillCooldownRemainingMs();
+    const primarySkill = this.getPrimarySkill();
+    const status =
+      remainingMs > 0
+        ? `${(remainingMs / 1000).toFixed(1)}秒`
+        : this.localMp >= primarySkill.mpCost
+          ? "可施放"
+          : `缺 ${Math.ceil(primarySkill.mpCost - this.localMp)} 法力`;
+    const color = remainingMs > 0 ? ColorText.sand : this.localMp >= primarySkill.mpCost ? ColorText.mistBlue : ColorText.danger;
+
+    this.skillText.setText(`J ${primarySkill.name} | ${primarySkill.mpCost} 法力 | ${status}`);
+    this.skillText.setColor(color);
+  }
+
+  private updateInventoryHud() {
+    if (!this.inventoryPanel) {
+      return;
+    }
+
+    const potionCount = this.inventory.find((slot) => slot.itemId === "small-hp-potion")?.quantity ?? 0;
+    const weaponName = this.equipment.weapon ? ITEM_DEFINITIONS[this.equipment.weapon].name : "未裝備";
+    const armorName = this.equipment.armor ? ITEM_DEFINITIONS[this.equipment.armor].name : "未裝備";
+    const materialLines = this.inventory
+      .filter((slot) => ITEM_DEFINITIONS[slot.itemId].kind === "material" && slot.quantity > 0)
+      .slice(0, 4)
+      .map((slot) => `   ${ITEM_DEFINITIONS[slot.itemId].name} x${slot.quantity}`);
+    const extraEquipmentLines = this.inventory
+      .filter((slot) => {
+        const item = ITEM_DEFINITIONS[slot.itemId];
+        return item.kind === "equipment" && slot.quantity > 0 && this.equipment[item.equipmentSlot!] !== slot.itemId;
+      })
+      .slice(0, 2)
+      .map((slot) => `   可裝備：${ITEM_DEFINITIONS[slot.itemId].name}`);
+
+    this.inventoryPanel.body.setText(
+      [
+        `1 使用藥水：小型補血藥水 x${potionCount}`,
+        `2 裝備最佳武器：${weaponName}`,
+        `3 裝備最佳防具：${armorName}`,
+        ...extraEquipmentLines,
+        ...materialLines,
+        "",
+        "掉落物：碰到自動拾取"
+      ].join("\n")
+    );
+  }
+
+  private updateCharacterPanel() {
+    if (!this.characterPanel) {
+      return;
+    }
+
+    const weaponName = this.equipment.weapon ? ITEM_DEFINITIONS[this.equipment.weapon].name : "未裝備";
+    const armorName = this.equipment.armor ? ITEM_DEFINITIONS[this.equipment.armor].name : "未裝備";
+    this.characterPanel.body.setText(
+      [
+        `名稱：${this.localPlayerName}`,
+        `職業：${this.getClassLabel(this.localClassName)}`,
+        `攻擊 ${this.localAttack}`,
+        `防禦 ${this.localDefense}`,
+        `武器：${weaponName}`,
+        `防具：${armorName}`,
+        "",
+        "2 裝備武器 | 3 裝備防具"
+      ].join("\n")
+    );
+  }
+
+  private updateActionPrompt() {
+    if (!this.player || !this.promptText) {
+      return;
+    }
+
+    this.nearbyNpcId = "";
+    this.nearbyInteractableId = "";
+    this.nearbyDropId = "";
+    this.nearbyPortalId = "";
+
+    const nearbyNpc = this.currentMap.npcs.find((npc) => {
+      return (
+        Math.abs(this.player!.x - npc.x) <= npc.interactionRadius &&
+        Math.abs(this.player!.y - npc.y) <= npc.interactionRadius
+      );
+    });
+
+    if (nearbyNpc) {
+      this.nearbyNpcId = nearbyNpc.id;
+      if (this.openShop && this.openShop.npcId !== nearbyNpc.id) {
+        this.openShop = undefined;
+        this.shopPanelVisible = false;
+        this.updateShopPanel();
+      }
+
+      const action = this.openShop?.npcId === nearbyNpc.id ? "E 對話 / N 選擇 / B 購買" : "E 對話";
+      this.promptText.setText(`${action}：${nearbyNpc.name}`);
+      this.promptText.setVisible(true);
+      return;
+    }
+
+    if (this.openShop) {
+      this.openShop = undefined;
+      this.shopPanelVisible = false;
+      this.updateShopPanel();
+    }
+
+    const nearbyInteractable = this.currentMap.interactables.find((interactable) => {
+      return (
+        Math.abs(this.player!.x - interactable.x) <= interactable.interactionRadius &&
+        Math.abs(this.player!.y - interactable.y) <= interactable.interactionRadius
+      );
+    });
+
+    if (nearbyInteractable) {
+      this.nearbyInteractableId = nearbyInteractable.id;
+      const state = this.getInteractableState(nearbyInteractable);
+      this.promptText.setText(`${state.done ? "已完成" : nearbyInteractable.prompt}：${nearbyInteractable.name}（${state.label}）`);
+      this.promptText.setVisible(true);
+      return;
+    }
+
+    const nearbyPortal = this.currentMap.portals.find((portal) => {
+      return (
+        Math.abs(this.player!.x - portal.x) <= portal.width / 2 + 24 &&
+        Math.abs(this.player!.y - portal.y) <= portal.height / 2 + 32
+      );
+    });
+
+    if (nearbyPortal) {
+      this.nearbyPortalId = nearbyPortal.id;
+      this.promptText.setText(`E 傳送：${nearbyPortal.name}`);
+      this.promptText.setVisible(true);
+      return;
+    }
+
+    for (const [dropId, view] of this.itemDrops) {
+      if (Math.abs(this.player.x - view.body.x) <= 64 && Math.abs(this.player.y - view.body.y) <= 72) {
+        this.nearbyDropId = dropId;
+        this.tryAutoPickupDrop(dropId);
+        this.promptText.setText("自動拾取");
+        this.promptText.setVisible(true);
+        return;
+      }
+    }
+
+    this.promptText.setVisible(false);
+  }
+
+  private updateInteractableStatusLabels() {
+    for (const interactable of this.currentMap.interactables) {
+      const label = this.interactableStatusTexts.get(interactable.id);
+      if (!label) {
+        continue;
+      }
+
+      const state = this.getInteractableState(interactable);
+      label.setText(state.label);
+      label.setColor(state.color);
+    }
+  }
+
+  private getInteractableState(interactable: MapInteractableData) {
+    const quest = this.getInteractableQuest(interactable);
+    if (!quest || quest.status === "available") {
+      return { label: "未接任務", color: ColorText.sand, done: false };
+    }
+
+    if (quest.status === "completed") {
+      return { label: interactable.kind === "lantern" ? "已修復" : "已調查", color: ColorText.jade, done: true };
+    }
+
+    const interacted = quest.interactedTargetIds?.includes(interactable.id) ?? false;
+    if (interacted) {
+      return { label: interactable.kind === "lantern" ? "已修復" : "已調查", color: ColorText.jade, done: true };
+    }
+
+    if (quest.status === "ready") {
+      return { label: "可回報", color: ColorText.gold, done: true };
+    }
+
+    return { label: interactable.kind === "lantern" ? "待修復" : "待調查", color: ColorText.danger, done: false };
+  }
+
+  private getInteractableQuest(interactable: MapInteractableData) {
+    return [...this.quests.values()].find(
+      (quest) => quest.objective.type === "interact" && quest.objective.targetId === interactable.targetId
+    );
+  }
+
+  private updateZoneBanner() {
+    if (!this.player || !this.zoneText) {
+      return;
+    }
+
+    const zone = this.getCurrentZoneName(this.player.x, this.player.y);
+    if (zone.id === this.currentZoneId) {
+      return;
+    }
+
+    this.currentZoneId = zone.id;
+    this.zoneText.setText(zone.name);
+    this.zoneText.setAlpha(1);
+    this.zoneText.setVisible(true);
+    this.tweens.killTweensOf(this.zoneText);
+    this.tweens.add({
+      targets: this.zoneText,
+      alpha: 0,
+      delay: 1400,
+      duration: 420,
+      onComplete: () => this.zoneText?.setVisible(false)
+    });
+  }
+
+  private getCurrentZoneName(x: number, y: number) {
+    const safeZone = this.currentMap.safeZones.find((zone) => {
+      const left = zone.x - zone.width / 2;
+      const right = zone.x + zone.width / 2;
+      const top = zone.y - zone.height / 2;
+      const bottom = zone.y + zone.height / 2;
+      return x >= left && x <= right && y >= top && y <= bottom;
+    });
+
+    if (safeZone) {
+      return { id: safeZone.id, name: safeZone.name };
+    }
+
+    if (this.currentMapId === "mist-breakwater") {
+      if (x >= 1450) {
+        return { id: "watcher-platform", name: "潮眼守衛平台" };
+      }
+
+      if (x >= 720) {
+        return { id: "mist-breakwater-mid", name: "海霧堤道中段" };
+      }
+
+      return { id: "mist-breakwater-entry", name: "堤道入口" };
+    }
+
+    if (x >= 1850) {
+      return { id: "outer-tideway", name: "潮汐林道深處" };
+    }
+
+    if (x >= 1320) {
+      return { id: "tideway", name: "潮汐林道" };
+    }
+
+    return { id: "fog-harbor-outskirts", name: "霧港郊外" };
+  }
+
+  private updateQuestTracker() {
+    if (!this.questPanel) {
+      return;
+    }
+
+    const allQuestLines = [...this.quests.values()]
+      .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
+      .map((quest) => `${this.formatQuestLine(quest)}${this.getQuestDirectionHint(quest)}`);
+    const questLines = allQuestLines.slice(0, 4);
+    const hiddenQuestCount = allQuestLines.length - questLines.length;
+    if (hiddenQuestCount > 0) {
+      questLines.push(`... 還有 ${hiddenQuestCount} 個任務，按 Q 開關`);
+    }
+    this.questPanel.body.setText(questLines.join("\n") || "找港口守衛接任務");
+    this.updateQuestLogPanel();
+  }
+
+  private updateQuestLogPanel() {
+    if (!this.questLogPanel) {
+      return;
+    }
+
+    const quests = [...this.quests.values()].sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b));
+    if (quests.length === 0) {
+      this.questLogPanel.body.setText("任務同步中。\n請稍候或重新連線。");
+      return;
+    }
+
+    const lines = quests.flatMap((quest) => [
+      `${this.getQuestStatusLabel(quest.status)} ${quest.title}`,
+      `  ${this.formatQuestProgress(quest)} | ${this.getNpcName(quest.npcId)} | EXP ${quest.rewardExp} / 金幣 ${quest.rewardGold}`
+    ]);
+    this.questLogPanel.body.setText([...lines, "", "Q 關閉 | E 找 NPC 接取 / 回報"].join("\n"));
+  }
+
+  private getQuestStatusLabel(status: QuestSnapshot["status"]) {
+    const labels: Record<QuestSnapshot["status"], string> = {
+      available: "[可接]",
+      active: "[進行]",
+      ready: "[回報]",
+      completed: "[完成]"
+    };
+    return labels[status];
+  }
+
+  private updateGuidePanel() {
+    if (!this.guidePanel) {
+      return;
+    }
+
+    const chapterStep = this.getChapterStepSummary();
+    const routeHint = this.getRouteHint();
+    const zoneName = this.getCurrentZoneName(this.player?.x ?? 0, this.player?.y ?? 0).name;
+    this.guidePanel.body.setText(
+      [
+        this.fitPanelLine(`${this.currentMap.name} | ${zoneName}`, 22),
+        this.fitPanelLine(`狀態：${this.getSurvivalSummary()}`, 24),
+        this.fitPanelLine(`進度：${chapterStep}`, 24),
+        this.fitPanelLine(`${this.getChapterChecklist()} | ${routeHint.replace("下一步：", "")}`, 28)
+      ].join("\n")
+    );
+  }
+
+  private recordAnnouncement(notice: AnnouncementNotice) {
+    const duplicate = this.announcements.find(
+      (announcement) => announcement.text === notice.text && announcement.sentAt === notice.sentAt
+    );
+    if (!duplicate) {
+      this.announcements = [notice, ...this.announcements].slice(0, 5);
+    }
+    this.updateAnnouncementPanel();
+  }
+
+  private updateAnnouncementPanel() {
+    if (!this.announcementPanel) {
+      return;
+    }
+
+    if (this.announcements.length === 0) {
+      this.announcementPanel.body.setText("目前沒有公告。\n收到教師公告後會保留在這裡。");
+      return;
+    }
+
+    this.announcementPanel.body.setText(
+      this.announcements
+        .slice(0, 4)
+        .map((announcement) => {
+          const category = this.getAnnouncementCategoryLabel(announcement.category);
+          const time = new Date(announcement.sentAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+          return this.fitPanelLine(`[${category}] ${time} ${announcement.text}`, 34);
+        })
+        .join("\n")
+    );
+  }
+
+  private getAnnouncementCategoryLabel(category: string) {
+    const labels: Record<string, string> = {
+      system: "系統",
+      classroom: "課堂",
+      maintenance: "維護",
+      event: "活動"
+    };
+    return labels[category] ?? "公告";
+  }
+
+  private fitPanelLine(text: string, maxLength: number) {
+    return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3))}...` : text;
+  }
+
+  private getSurvivalSummary() {
+    if (this.localHp <= 0) {
+      return "倒地，等待復活";
+    }
+
+    const ratio = this.localMaxHp > 0 ? this.localHp / this.localMaxHp : 1;
+    if (ratio <= 0.3) {
+      return "生命偏低，先補血";
+    }
+
+    if (this.currentMapId === "mist-breakwater" && this.player && this.player.x >= 1450) {
+      return "Boss 區域，注意距離";
+    }
+
+    return "可探索";
+  }
+
+  private getChapterStepSummary() {
+    if (this.quests.size === 0) {
+      return "任務同步中";
+    }
+
+    const steps = this.getChapterQuestIds().map((questId) => this.quests.get(questId));
+    const completed = steps.filter((quest) => quest?.status === "completed").length;
+    const active = steps.find((quest) => quest && quest.status !== "completed");
+
+    if (!active) {
+      return "目前內容完成";
+    }
+
+    return `${completed + 1}/${steps.length} ${active.title}`;
+  }
+
+  private getChapterChecklist() {
+    return this.getChapterQuestIds()
+      .map((questId, index) => {
+        const quest = this.quests.get(questId);
+        return quest?.status === "completed" ? `${index + 1}✓` : `${index + 1}-`;
+      })
+      .join(" ");
+  }
+
+  private getChapterQuestIds() {
+    return [
+      "field-rat-cleanup",
+      "rat-tail-salve",
+      "mist-gel-lantern",
+      "breakwater-scout",
+      "breakwater-lantern-repair",
+      "tide-watcher-core",
+      "watcher-shell-report",
+      "tide-gauge-survey",
+      "warehouse-rat-cleanup",
+      "damp-wood-sample",
+      "mist-puppet-clear",
+      "warehouse-sentry-core"
+    ];
+  }
+
+  private getRouteHint() {
+    if (!this.player) {
+      return "提示：Enter 開始遊戲";
+    }
+
+    const activeQuest = [...this.quests.values()]
+      .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
+      .find((quest) => quest.status !== "completed");
+    if (activeQuest) {
+      const hint = this.getQuestDirectionHint(activeQuest);
+      return `下一步：${this.formatQuestLine(activeQuest)}${hint}${this.getSafeReturnHint()}`;
+    }
+
+    const portal = this.getNearestPortal();
+    if (portal) {
+      return `下一步：可前往 ${GAME_MAPS[portal.targetMapId].name}${this.getSafeReturnHint()}`;
+    }
+
+    return `下一步：記錄測試回饋，等待第二章${this.getSafeReturnHint()}`;
+  }
+
+  private updateQuestTargetIndicator() {
+    if (!this.questTargetText || !this.player) {
+      return;
+    }
+
+    const quest = this.getGuidedQuest();
+    if (!quest) {
+      this.questTargetText.setVisible(false);
+      return;
+    }
+
+    const targetMapId = this.getQuestTargetMapId(quest);
+    if (targetMapId && targetMapId !== this.currentMapId) {
+      const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
+      if (portal) {
+        this.questTargetText.setText(this.formatTargetIndicator(portal.x, `前往 ${GAME_MAPS[targetMapId].name}`));
+        this.questTargetText.setVisible(true);
+        return;
+      }
+    }
+
+    const targetX = this.getQuestTargetX(quest);
+    if (targetX === undefined) {
+      this.questTargetText.setVisible(false);
+      return;
+    }
+
+    this.questTargetText.setText(this.formatTargetIndicator(targetX, this.getQuestTargetLabel(quest)));
+    this.questTargetText.setVisible(true);
+  }
+
+  private getGuidedQuest() {
+    return [...this.quests.values()]
+      .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
+      .find((quest) => quest.status !== "completed");
+  }
+
+  private formatTargetIndicator(targetX: number, label: string) {
+    if (!this.player) {
+      return label;
+    }
+
+    const dx = targetX - this.player.x;
+    const distance = Math.round(Math.abs(dx) / 10) * 10;
+    if (distance < 80) {
+      return `目標附近：${label}`;
+    }
+
+    const direction = dx > 0 ? ">>" : "<<";
+    const textDirection = dx > 0 ? "往右" : "往左";
+    return `${direction} ${label} | ${textDirection} ${distance}`;
+  }
+
+  private getQuestTargetLabel(quest: QuestSnapshot) {
+    if (quest.status === "available" || quest.status === "ready") {
+      return this.getNpcName(quest.npcId);
+    }
+
+    if (quest.objective.type === "kill") {
+      return MONSTER_KIND_NAMES[quest.objective.targetKind];
+    }
+
+    if (quest.objective.type === "collect") {
+      return ITEM_DEFINITIONS[quest.objective.itemId].name;
+    }
+
+    return this.getInteractableTargetName(quest.objective.targetId);
+  }
+
+  private getSafeReturnHint() {
+    if (!this.player || this.localHp <= 0 || this.isInSafeZone(this.player.x, this.player.y)) {
+      return "";
+    }
+
+    return " | H 回安全區";
+  }
+
+  private isInSafeZone(x: number, y: number) {
+    return this.currentMap.safeZones.some((zone) => {
+      const left = zone.x - zone.width / 2;
+      const right = zone.x + zone.width / 2;
+      const top = zone.y - zone.height / 2;
+      const bottom = zone.y + zone.height / 2;
+      return x >= left && x <= right && y >= top && y <= bottom;
+    });
+  }
+
+  private getQuestStatusPriority(quest: QuestSnapshot) {
+    const statusOrder: Record<QuestSnapshot["status"], number> = {
+      ready: 0,
+      active: 1,
+      available: 2,
+      completed: 3
+    };
+
+    return statusOrder[quest.status];
+  }
+
+  private getNearestPortal() {
+    if (!this.player || this.currentMap.portals.length === 0) {
+      return undefined;
+    }
+
+    return [...this.currentMap.portals].sort(
+      (a, b) => Math.abs(a.x - this.player!.x) - Math.abs(b.x - this.player!.x)
+    )[0];
+  }
+
+  private updateBossAreaWarning() {
+    if (!this.player || this.currentMapId !== "mist-breakwater" || this.localHp <= 0) {
+      return;
+    }
+
+    if (this.player.x >= 1360 && !this.bossEntryHintShown) {
+      this.bossEntryHintShown = true;
+      this.showDialogue("前方是潮眼守衛平台。先確認生命與法力，必要時按 H 回安全區。");
+    }
+
+    if (this.player.x < 1450 || this.time.now < this.bossWarningReadyAt) {
+      return;
+    }
+
+    this.bossWarningReadyAt = this.time.now + 8500;
+    this.showToast("前方為潮眼守衛區，建議補滿生命後再挑戰。");
+  }
+
+  private updateBossStatusPanel() {
+    if (!this.bossHpBack || !this.bossHpFill || !this.bossStatusText) {
+      return;
+    }
+
+    const watcher = this.monsterSnapshots.get("tide-watcher-1");
+    const shouldShow = this.shouldShowBossStatus();
+    if (!shouldShow || !watcher) {
+      this.bossHpBack.setVisible(false);
+      this.bossHpFill.setVisible(false);
+      this.bossStatusText.setVisible(false);
+      return;
+    }
+
+    const hpRatio = watcher.maxHp > 0 ? Phaser.Math.Clamp(watcher.hp / watcher.maxHp, 0, 1) : 0;
+    this.bossHpBack.setVisible(true);
+    this.bossHpFill.setVisible(true).setDisplaySize(280 * hpRatio, 10);
+    this.bossStatusText.setVisible(true);
+
+    if (!watcher.alive) {
+      this.bossHpFill.setVisible(false);
+      this.bossStatusText.setText("潮眼守衛已擊退 | 拾取甲片後找測潮學徒阿澄");
+      this.bossStatusText.setColor(ColorText.jade);
+      return;
+    }
+
+    const watcherQuest = this.quests.get("tide-watcher-core");
+    const questHint = watcherQuest?.status === "active" ? "任務目標" : "危險區域";
+    this.bossStatusText.setText(`潮眼守衛 ${watcher.hp}/${watcher.maxHp} | ${questHint} | K/J 攻擊`);
+    this.bossStatusText.setColor(ColorText.gold);
+  }
+
+  private shouldShowBossStatus() {
+    if (this.currentMapId !== "mist-breakwater") {
+      return false;
+    }
+
+    const watcherQuest = this.quests.get("tide-watcher-core");
+    if (watcherQuest && watcherQuest.status !== "completed" && watcherQuest.status !== "available") {
+      return true;
+    }
+
+    return Boolean(this.player && this.player.x >= 1320);
+  }
+
+  private updateShopPanel() {
+    if (!this.shopPanel) {
+      return;
+    }
+
+    if (!this.openShop) {
+      this.shopPanel.title.setText("商店");
+      this.shopPanel.body.setText("找陳老闆開啟商店。");
+      this.syncPanelVisibility();
+      return;
+    }
+
+    const offerLines = this.openShop.items.map((offer, index) => {
+      const item = ITEM_DEFINITIONS[offer.itemId];
+      const marker = index === this.selectedShopIndex ? ">" : " ";
+      return `${marker} ${item.name} x${offer.quantity}\n   ${offer.priceGold} 金幣`;
+    });
+
+    this.shopPanel.title.setText(this.openShop.name);
+    this.shopPanel.body.setText([...offerLines, "", "N 選擇 | B 購買"].join("\n"));
+    this.syncPanelVisibility();
+  }
+
+  private formatQuestLine(quest: QuestSnapshot) {
+    if (quest.status === "available") {
+      return `找 ${this.getNpcName(quest.npcId)} 接任務`;
+    }
+
+    if (quest.status === "active") {
+      return `${quest.title}：${this.formatQuestProgress(quest)}`;
+    }
+
+    if (quest.status === "ready") {
+      return `${quest.title}：回報給 ${this.getNpcName(quest.npcId)}`;
+    }
+
+    return `${quest.title}：完成`;
+  }
+
+  private formatQuestProgress(quest: QuestSnapshot) {
+    if (quest.objective.type === "collect") {
+      return `${ITEM_DEFINITIONS[quest.objective.itemId].name} ${quest.progress}/${quest.targetCount}`;
+    }
+
+    if (quest.objective.type === "interact") {
+      return `${this.getInteractableTargetName(quest.objective.targetId)} ${quest.progress}/${quest.targetCount}`;
+    }
+
+    return `${MONSTER_KIND_NAMES[quest.objective.targetKind]} ${quest.progress}/${quest.targetCount}`;
+  }
+
+  private getNpcName(npcId: string) {
+    for (const map of Object.values(GAME_MAPS)) {
+      const npc = map.npcs.find((candidate) => candidate.id === npcId);
+      if (npc) {
+        return npc.name;
+      }
+    }
+
+    return "委託人";
+  }
+
+  private getQuestDirectionHint(quest: QuestSnapshot) {
+    if (!this.player || quest.status === "completed") {
+      return "";
+    }
+
+    const targetMapId = this.getQuestTargetMapId(quest);
+    if (targetMapId && targetMapId !== this.currentMapId) {
+      const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
+      if (!portal) {
+        return "（目標在其他區域）";
+      }
+
+      return this.formatDistanceHint(portal.x, `傳送門：${GAME_MAPS[targetMapId].name}`);
+    }
+
+    const targetX = this.getQuestTargetX(quest);
+    if (targetX === undefined) {
+      return "";
+    }
+
+    return this.formatDistanceHint(targetX);
+  }
+
+  private formatDistanceHint(targetX: number, label = "目標") {
+    if (!this.player) {
+      return "";
+    }
+
+    const dx = targetX - this.player.x;
+    const distance = Math.round(Math.abs(dx) / 10) * 10;
+    if (distance < 80) {
+      return `（${label}附近）`;
+    }
+
+    return dx > 0 ? `（往右 ${distance}）` : `（往左 ${distance}）`;
+  }
+
+  private getQuestTargetMapId(quest: QuestSnapshot): MapId | undefined {
+    if (quest.status === "available" || quest.status === "ready") {
+      return Object.values(GAME_MAPS).find((map) => map.npcs.some((npc) => npc.id === quest.npcId))?.id;
+    }
+
+    if (quest.status !== "active") {
+      return undefined;
+    }
+
+    if (quest.objective.type === "kill") {
+      const targetKind = quest.objective.targetKind;
+      return Object.values(GAME_MAPS).find((map) =>
+        map.monsterSpawns.some((spawn) => spawn.kind === targetKind)
+      )?.id;
+    }
+
+    if (quest.objective.type === "interact") {
+      const targetId = quest.objective.targetId;
+      return Object.values(GAME_MAPS).find((map) =>
+        map.interactables.some((interactable) => interactable.targetId === targetId)
+      )?.id;
+    }
+
+    const targetKind = this.getItemSourceMonsterKind(quest.objective.itemId);
+    if (!targetKind) {
+      return undefined;
+    }
+
+    return Object.values(GAME_MAPS).find((map) => map.monsterSpawns.some((spawn) => spawn.kind === targetKind))?.id;
+  }
+
+  private getQuestTargetX(quest: QuestSnapshot) {
+    if (quest.status === "available" || quest.status === "ready") {
+      return this.currentMap.npcs.find((npc) => npc.id === quest.npcId)?.x;
+    }
+
+    if (quest.status !== "active") {
+      return undefined;
+    }
+
+    if (quest.objective.type === "kill") {
+      return this.getMonsterTargetX(quest.objective.targetKind);
+    }
+
+    if (quest.objective.type === "interact") {
+      const targetId = quest.objective.targetId;
+      return this.currentMap.interactables.find((interactable) => interactable.targetId === targetId)?.x;
+    }
+
+    const targetKind = this.getItemSourceMonsterKind(quest.objective.itemId);
+    return targetKind ? this.getMonsterTargetX(targetKind) : undefined;
+  }
+
+  private getInteractableTargetName(targetId: string) {
+    for (const map of Object.values(GAME_MAPS)) {
+      const interactable = map.interactables.find((candidate) => candidate.targetId === targetId);
+      if (interactable) {
+        return interactable.name;
+      }
+    }
+
+    return "地圖目標";
+  }
+
+  private getMonsterTargetX(kind: MonsterSnapshot["kind"]) {
+    return this.currentMap.monsterSpawns.find((spawn) => spawn.kind === kind)?.x;
+  }
+
+  private getItemSourceMonsterKind(itemId: ItemId): MonsterSnapshot["kind"] | undefined {
+    if (itemId === "rat-tail") {
+      return "field-rat";
+    }
+
+    if (itemId === "mist-gel") {
+      return "mist-slime";
+    }
+
+    if (itemId === "watcher-shell") {
+      return "tide-watcher";
+    }
+
+    if (itemId === "warehouse-cloth") {
+      return "warehouse-rat";
+    }
+
+    if (itemId === "damp-wood") {
+      return "mist-puppet";
+    }
+
+    return undefined;
+  }
+
+  private showExpGain(expGained: number) {
+    if (!this.player) {
+      return;
+    }
+
+    const text = this.add.text(this.player.x - 18, this.player.y - 88, `+${expGained} 經驗`, {
+      fontFamily: uiFont,
+      fontSize: "14px",
+      color: ColorText.jade,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    });
+    this.tweens.add({
+      targets: text,
+      y: text.y - 24,
+      alpha: 0,
+      duration: 700,
+      onComplete: () => text.destroy()
+    });
+  }
+
+  private showToast(text: string) {
+    const toast = this.add
+      .text(gameWidth - 26, gameHeight - 34, text, {
+        fontFamily: uiFont,
+        fontSize: "14px",
+        color: ColorText.parchment,
+        backgroundColor: "#10271fe6",
+        padding: { x: 12, y: 7 },
+        wordWrap: { width: 360 }
+      })
+      .setOrigin(1, 1)
+      .setScrollFactor(0)
+      .setDepth(260)
+      .setAlpha(0);
+
+    this.tweens.add({
+      targets: toast,
+      alpha: 1,
+      y: toast.y - 10,
+      duration: 140,
+      onComplete: () => {
+        this.tweens.add({
+          targets: toast,
+          alpha: 0,
+          y: toast.y - 12,
+          delay: 1700,
+          duration: 260,
+          onComplete: () => toast.destroy()
+        });
+      }
+    });
+  }
+
+  private showFloatingNotice(text: string) {
+    if (!this.player) {
+      this.showToast(text);
+      return;
+    }
+
+    const notice = this.add.text(this.player.x - 36, this.player.y - 92, text, {
+      fontFamily: uiFont,
+      fontSize: "14px",
+      color: ColorText.mistBlue,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    });
+
+    this.tweens.add({
+      targets: notice,
+      y: notice.y - 28,
+      alpha: 0,
+      duration: 760,
+      onComplete: () => notice.destroy()
+    });
+  }
+
+  private showCompactNotice(text: string, color: string = ColorText.parchment) {
+    const notice = this.add
+      .text(gameWidth / 2, 104, text, {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color,
+        backgroundColor: "#10271fe6",
+        padding: { x: 9, y: 5 },
+        fixedWidth: 250,
+        align: "center",
+        wordWrap: { width: 232 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(262)
+      .setAlpha(0);
+
+    this.tweens.add({
+      targets: notice,
+      alpha: 1,
+      y: notice.y - 4,
+      duration: 100,
+      onComplete: () => {
+        this.tweens.add({
+          targets: notice,
+          alpha: 0,
+          y: notice.y - 8,
+          delay: 680,
+          duration: 180,
+          onComplete: () => notice.destroy()
+        });
+      }
+    });
+  }
+
+  private showDialogue(text: string) {
+    if (!this.dialogueText) {
+      return;
+    }
+
+    this.dialogueText.setText(text);
+    this.dialogueText.setAlpha(1);
+    this.dialogueText.setVisible(true);
+    this.dialogueBox?.setAlpha(1).setVisible(true);
+
+    this.time.delayedCall(2400, () => {
+      this.tweens.add({
+        targets: this.dialogueText,
+        alpha: 0,
+        duration: 260,
+        onComplete: () => this.dialogueText?.setVisible(false)
+      });
+      if (this.dialogueBox) {
+        this.tweens.add({
+          targets: this.dialogueBox,
+          alpha: 0,
+          duration: 260,
+          onComplete: () => this.dialogueBox?.setVisible(false)
+        });
+      }
+    });
+  }
+
+  private showReward(exp: number, gold: number) {
+    if (!this.player) {
+      return;
+    }
+
+    const text = this.add.text(this.player.x - 28, this.player.y - 108, `+${exp} 經驗  +${gold} 金幣`, {
+      fontFamily: uiFont,
+      fontSize: "14px",
+      color: ColorText.gold,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    });
+
+    this.tweens.add({
+      targets: text,
+      y: text.y - 30,
+      alpha: 0,
+      duration: 900,
+      onComplete: () => text.destroy()
+    });
+  }
+
+  private maybeShowStageClear(quest: QuestSnapshot) {
+    if (this.stageClearShown || quest.id !== "tide-gauge-survey" || quest.status !== "completed") {
+      return;
+    }
+
+    this.stageClearShown = true;
+    const panel = this.add.graphics().setScrollFactor(0).setDepth(8000);
+    panel.fillStyle(ColorHex.inkGreenDeep, 0.92);
+    panel.fillRoundedRect(gameWidth / 2 - 270, 72, 540, 186, 12);
+    panel.lineStyle(2, ColorHex.gold, 0.8);
+    panel.strokeRoundedRect(gameWidth / 2 - 270, 72, 540, 186, 12);
+    panel.lineStyle(1, ColorHex.gold, 0.38);
+    panel.strokeRoundedRect(gameWidth / 2 - 258, 84, 516, 162, 8);
+
+    const title = this.add
+      .text(gameWidth / 2, 100, "第一章完成", {
+        fontFamily: uiFont,
+        fontSize: "24px",
+        color: ColorText.gold,
+        stroke: ColorText.ink,
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(8001);
+    const body = this.add
+      .text(gameWidth / 2, 166, this.getChapterClearSummary(), {
+        fontFamily: uiFont,
+        fontSize: "14px",
+        color: ColorText.parchment,
+        align: "center",
+        fixedWidth: 470,
+        lineSpacing: 7,
+        wordWrap: { width: 470 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(8001);
+
+    this.tweens.add({
+      targets: [panel, title, body],
+      alpha: 0,
+      delay: 5200,
+      duration: 600,
+      onComplete: () => {
+        panel.destroy();
+        title.destroy();
+        body.destroy();
+      }
+    });
+  }
+
+  private getChapterClearSummary() {
+    const completed = this.getChapterQuestIds().filter((questId) => this.quests.get(questId)?.status === "completed").length;
+    return [
+      `完成進度：${completed}/8`,
+      "霧港試煉、海霧堤道與潮位尺調查已完成。",
+      "可繼續自由探索，或按 T 回報測試意見。",
+      "下一階段：Boss 結算、正式素材與第二章入口。"
+    ].join("\n");
+  }
+
+  private showHeal(healed: number) {
+    if (!this.player) {
+      return;
+    }
+
+    const text = this.add.text(this.player.x - 16, this.player.y - 98, `+${healed} 生命`, {
+      fontFamily: uiFont,
+      fontSize: "15px",
+      color: ColorText.jade,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    });
+
+    this.tweens.add({
+      targets: text,
+      y: text.y - 24,
+      alpha: 0,
+      duration: 720,
+      onComplete: () => text.destroy()
+    });
+  }
+
+  private showLevelUp(level: number) {
+    const text = this.add
+      .text(gameWidth / 2, 106, `升到 ${level} 級`, {
+        fontFamily: uiFont,
+        fontSize: "28px",
+        color: ColorText.gold,
+        stroke: ColorText.ink,
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    this.tweens.add({
+      targets: text,
+      y: 82,
+      alpha: 0,
+      duration: 1200,
+      onComplete: () => text.destroy()
+    });
+  }
+
+  private showPlayerDamage(damage: number, defeated: boolean) {
+    if (!this.player) {
+      return;
+    }
+
+    const text = this.add.text(this.player.x - 12, this.player.y - 76, defeated ? "倒下" : `-${damage}`, {
+      fontFamily: uiFont,
+      fontSize: defeated ? "18px" : "15px",
+      color: defeated ? ColorText.riceWhite : ColorText.danger,
+      stroke: ColorText.ink,
+      strokeThickness: 3
+    });
+
+    this.player.setTint(0xff8f7d);
+    this.time.delayedCall(90, () => {
+      this.player?.clearTint();
+    });
+
+    this.tweens.add({
+      targets: text,
+      y: text.y - 28,
+      alpha: 0,
+      duration: defeated ? 900 : 620,
+      onComplete: () => text.destroy()
+    });
+
+    if (defeated) {
+      this.showToast("你倒下了，數秒後會在安全區復活。");
+    }
+  }
+
+  private respawnLocalPlayer(x: number, y: number) {
+    if (!this.player) {
+      return;
+    }
+
+    this.localHp = this.localMaxHp;
+    this.player.setPosition(x, y);
+    this.player.setVelocity(0, 0);
+    this.player.setAlpha(1);
+    this.player.clearTint();
+    this.updateGuidePanel();
+    this.showToast("已在安全區復活，建議補血後再挑戰。");
+
+    const text = this.add
+      .text(gameWidth / 2, 136, "復活", {
+        fontFamily: uiFont,
+        fontSize: "20px",
+        color: ColorText.jade,
+        stroke: ColorText.ink,
+        strokeThickness: 4
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    this.tweens.add({
+      targets: text,
+      y: 112,
+      alpha: 0,
+      duration: 900,
+      onComplete: () => text.destroy()
+    });
+  }
+}
+
+function isDevFrontend() {
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" || window.location.port === "5173" || window.location.port === "5174";
+}

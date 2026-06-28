@@ -1,0 +1,658 @@
+/* ==========================================================================
+   蓬萊異聞錄 Online — 全域樣式
+   遊戲畫面（Phaser canvas）只需要深色襯底；教師管理面板採用安靜的米白 +
+   墨綠標頭的專業 dashboard 風格。配色：墨綠 / 深青 / 米白 / 木色 + 金 / 朱紅。
+   ========================================================================== */
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: #0d1f17;
+  color: #f3ecdb;
+  font-family:
+    "Noto Sans TC",
+    "Microsoft JhengHei",
+    "PingFang TC",
+    Inter,
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+/* ========================================================================== 
+   遊戲內測試回饋表單
+   ========================================================================== */
+
+.feedback-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(9, 24, 18, 0.72);
+}
+
+.feedback-form {
+  width: min(520px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  color: #f3ecdb;
+  background: #10271f;
+  border: 2px solid #c89a45;
+  border-radius: 10px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+}
+
+.feedback-form header,
+.feedback-form footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.feedback-form header {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(200, 154, 69, 0.55);
+}
+
+.feedback-form header p,
+.feedback-form header h2 {
+  margin: 0;
+}
+
+.feedback-form header p {
+  color: #eccc7a;
+  font-size: 13px;
+}
+
+.feedback-form header h2 {
+  font-size: 20px;
+}
+
+.feedback-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.feedback-form label span,
+.feedback-form footer span {
+  color: #d9ceb4;
+  font-size: 13px;
+}
+
+.feedback-form input,
+.feedback-form select,
+.feedback-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #6e846f;
+  border-radius: 7px;
+  background: #f7f1df;
+  color: #17231d;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.feedback-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.feedback-form button {
+  border: 1px solid #c89a45;
+  border-radius: 8px;
+  background: #d8ad56;
+  color: #241a10;
+  padding: 9px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.feedback-form button:hover {
+  background: #eccc7a;
+}
+
+.feedback-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.feedback-form [data-feedback-close] {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* ==========================================================================
+   教師管理面板
+   ========================================================================== */
+
+.admin-shell {
+  --cream: #f4efe3;
+  --paper: #ffffff;
+  --ink: #1d2a24;
+  --muted: #5e6b62;
+  --line: #e4dccb;
+  --ink-green: #1c3a2c;
+  --ink-green-2: #163023;
+  --teal: #245c52;
+  --gold: #c89a45;
+  --gold-soft: #d8ad56;
+  --gold-bright: #eccc7a;
+  --vermilion: #a8362a;
+  --ok: #1c6b3c;
+  --ok-bg: #e6f1e8;
+  --error: #9d2c2c;
+  --error-bg: #f6e7e4;
+  --shadow: 0 1px 2px rgba(28, 40, 30, 0.06), 0 8px 24px rgba(28, 40, 30, 0.06);
+
+  min-height: 100%;
+  overflow: auto;
+  background:
+    radial-gradient(1200px 380px at 50% -120px, rgba(36, 92, 82, 0.1), transparent 70%),
+    var(--cream);
+  color: var(--ink);
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---- 頂部標題列 ---- */
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px clamp(18px, 5vw, 56px);
+  background: linear-gradient(135deg, var(--ink-green) 0%, var(--ink-green-2) 100%);
+  color: #f5efe0;
+  border-bottom: 3px solid var(--gold);
+}
+
+.admin-kicker {
+  margin: 0 0 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gold-bright);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-kicker::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--vermilion);
+  box-shadow: 0 0 0 2px rgba(236, 204, 122, 0.5);
+  transform: rotate(45deg);
+}
+
+.admin-topbar h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ---- 通用按鈕 ---- */
+
+.admin-link,
+.admin-toolbar button,
+.admin-broadcast button,
+.admin-section-head button {
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--gold-soft), var(--gold));
+  color: #2b2113;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 0.05s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+  box-shadow: 0 1px 1px rgba(28, 40, 30, 0.12);
+}
+
+.admin-link:hover,
+.admin-toolbar button:hover,
+.admin-broadcast button:hover,
+.admin-section-head button:hover {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold-soft));
+  box-shadow: 0 3px 10px rgba(200, 154, 69, 0.32);
+}
+
+.admin-link:active,
+.admin-toolbar button:active,
+.admin-broadcast button:active,
+.admin-section-head button:active {
+  transform: translateY(1px);
+}
+
+.admin-link {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(236, 204, 122, 0.55);
+  color: #f5efe0;
+  box-shadow: none;
+}
+
+.admin-link:hover {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+
+.admin-toolbar button:disabled,
+.admin-section-head button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+:where(.admin-shell) button:focus-visible,
+:where(.admin-shell) input:focus-visible,
+:where(.admin-shell) select:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* ---- 主要版面 ---- */
+
+.admin-main {
+  width: min(1180px, calc(100% - 32px));
+  margin: 26px auto 48px;
+}
+
+.admin-toolbar,
+.admin-broadcast {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(5, auto);
+  gap: 14px;
+  align-items: end;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.admin-broadcast {
+  grid-template-columns: minmax(220px, 1fr) auto;
+  margin-bottom: 18px;
+}
+
+.admin-toolbar label,
+.admin-broadcast label,
+.admin-filters {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-toolbar span,
+.admin-broadcast span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.admin-toolbar input,
+.admin-broadcast input,
+.admin-broadcast select,
+.admin-filters input,
+.admin-filters select {
+  min-height: 40px;
+  border: 1px solid #c9cfca;
+  border-radius: 8px;
+  background: #fcfbf7;
+  color: var(--ink);
+  padding: 9px 12px;
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-toolbar input:focus,
+.admin-broadcast input:focus,
+.admin-broadcast select:focus,
+.admin-filters input:focus,
+.admin-filters select:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(36, 92, 82, 0.12);
+  outline: none;
+}
+
+/* ---- 統計卡 ---- */
+
+.admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.admin-metrics article {
+  position: relative;
+  padding: 18px 18px 16px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.admin-metrics article::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--gold-soft), var(--teal));
+}
+
+.admin-metrics strong {
+  display: block;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--teal);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-metrics span {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---- 區塊 / 卡片 ---- */
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.admin-maintenance {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.admin-table-section {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.admin-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fbf8f1;
+}
+
+.admin-section-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.admin-section-head h2::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: var(--vermilion);
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 2px rgba(200, 154, 69, 0.35);
+}
+
+.admin-section-head button {
+  padding: 8px 14px;
+}
+
+/* ---- 列表（系統/備份/線上/聊天/操作） ---- */
+
+.admin-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.admin-list article {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  border-radius: 10px;
+  background: #fbf9f3;
+}
+
+.admin-list strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.admin-feedback-actions {
+  display: grid;
+  grid-template-columns: 112px minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.admin-feedback-actions select,
+.admin-feedback-actions input {
+  min-height: 34px;
+  border: 1px solid #c9cfca;
+  border-radius: 8px;
+  background: #fcfbf7;
+  color: var(--ink);
+  padding: 7px 9px;
+  font: inherit;
+}
+
+.admin-feedback-actions button {
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  background: var(--gold-soft);
+  color: #2b2113;
+  padding: 7px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-list span,
+.admin-list small {
+  color: var(--muted);
+}
+
+.admin-list small {
+  font-size: 12px;
+}
+
+.admin-list > p {
+  margin: 0;
+  padding: 18px 4px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.admin-actions button {
+  border: 1px solid #c4ccc4;
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-actions button:hover {
+  border-color: var(--teal);
+  background: var(--ok-bg);
+}
+
+.admin-actions button[data-action="kick"]:hover {
+  border-color: var(--vermilion);
+  background: var(--error-bg);
+}
+
+/* ---- 狀態訊息 ---- */
+
+.admin-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--muted);
+  box-shadow: var(--shadow);
+}
+
+.admin-status::before {
+  content: "‹›";
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.admin-status[data-kind="ok"] {
+  border-left-color: var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.admin-status[data-kind="ok"]::before {
+  content: "✓";
+  color: var(--ok);
+}
+
+.admin-status[data-kind="error"] {
+  border-left-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.admin-status[data-kind="error"]::before {
+  content: "!";
+  color: var(--error);
+}
+
+/* ---- 角色資料表 ---- */
+
+.admin-filters {
+  grid-template-columns: minmax(180px, 260px) 150px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table-section table {
+  width: 100%;
+  min-width: 850px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table-section th,
+.admin-table-section td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.admin-table-section th {
+  position: sticky;
+  top: 0;
+  color: var(--muted);
+  background: #f3eee3;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.admin-table-section tbody tr:nth-child(even) td {
+  background: #fbf9f3;
+}
+
+.admin-table-section tbody tr:hover td {
+  background: var(--ok-bg);
+}
+
+.admin-table-section td {
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-table-section code {
+  font-family: "Cascadia Mono", Consolas, "Noto Sans Mono", monospace;
+  color: #3f5247;
+  background: #eef1ec;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* ---- 小螢幕 ---- */
+
+@media (max-width: 760px) {
+  .admin-topbar,
+  .admin-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-toolbar,
+  .admin-broadcast,
+  .admin-metrics,
+  .admin-grid,
+  .admin-filters {
+    grid-template-columns: 1fr;
+  }
+}
