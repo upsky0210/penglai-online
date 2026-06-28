@@ -2924,12 +2924,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryUsePotion() {
-    if (!this.hasInventoryItem("small-hp-potion")) {
-      this.showCompactNotice("沒有小型補血藥水", ColorText.sand);
+    const bestPotion = this.inventory
+      .filter((slot) => {
+        const item = ITEM_DEFINITIONS[slot.itemId];
+        return slot.quantity > 0 && item.kind === "consumable" && Boolean(item.healHp);
+      })
+      .sort((a, b) => (ITEM_DEFINITIONS[b.itemId].healHp ?? 0) - (ITEM_DEFINITIONS[a.itemId].healHp ?? 0))[0];
+
+    if (!bestPotion) {
+      this.showCompactNotice("沒有可使用補給品", ColorText.sand);
       return;
     }
 
-    this.sendUseItem("small-hp-potion");
+    this.sendUseItem(bestPotion.itemId);
   }
 
   private tryEquipItem(itemId: ItemId) {
@@ -3360,7 +3367,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const potionCount = this.inventory.find((slot) => slot.itemId === "small-hp-potion")?.quantity ?? 0;
+    const consumableLine =
+      this.inventory
+        .filter((slot) => ITEM_DEFINITIONS[slot.itemId].kind === "consumable" && slot.quantity > 0)
+        .sort((a, b) => (ITEM_DEFINITIONS[b.itemId].healHp ?? 0) - (ITEM_DEFINITIONS[a.itemId].healHp ?? 0))
+        .map((slot) => `${ITEM_DEFINITIONS[slot.itemId].name} x${slot.quantity}`)[0] ?? "無";
     const weaponName = this.equipment.weapon ? ITEM_DEFINITIONS[this.equipment.weapon].name : "未裝備";
     const armorName = this.equipment.armor ? ITEM_DEFINITIONS[this.equipment.armor].name : "未裝備";
     const materialLines = this.inventory
@@ -3377,7 +3388,7 @@ export class GameScene extends Phaser.Scene {
 
     this.inventoryPanel.body.setText(
       [
-        `1 使用藥水：小型補血藥水 x${potionCount}`,
+        `1 使用最佳補給：${consumableLine}`,
         `2 裝備最佳武器：${weaponName}`,
         `3 裝備最佳防具：${armorName}`,
         ...extraEquipmentLines,
@@ -3596,6 +3607,7 @@ export class GameScene extends Phaser.Scene {
 
     const allQuestLines = [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
+      .filter((quest) => quest.status !== "available" || this.isQuestUnlocked(quest))
       .map((quest) => `${this.formatQuestLine(quest)}${this.getQuestDirectionHint(quest)}`);
     const questLines = allQuestLines.slice(0, 4);
     const hiddenQuestCount = allQuestLines.length - questLines.length;
@@ -3618,20 +3630,24 @@ export class GameScene extends Phaser.Scene {
     }
 
     const lines = quests.flatMap((quest) => [
-      `${this.getQuestStatusLabel(quest.status)} ${quest.title}`,
+      `${this.getQuestStatusLabel(quest)} ${quest.title}`,
       `  ${this.formatQuestProgress(quest)} | ${this.getNpcName(quest.npcId)} | EXP ${quest.rewardExp} / 金幣 ${quest.rewardGold}`
     ]);
     this.questLogPanel.body.setText([...lines, "", "Q 關閉 | E 找 NPC 接取 / 回報"].join("\n"));
   }
 
-  private getQuestStatusLabel(status: QuestSnapshot["status"]) {
+  private getQuestStatusLabel(quest: QuestSnapshot) {
+    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+      return "[鎖定]";
+    }
+
     const labels: Record<QuestSnapshot["status"], string> = {
       available: "[可接]",
       active: "[進行]",
       ready: "[回報]",
       completed: "[完成]"
     };
-    return labels[status];
+    return labels[quest.status];
   }
 
   private updateGuidePanel() {
@@ -3722,10 +3738,10 @@ export class GameScene extends Phaser.Scene {
 
     const steps = this.getChapterQuestIds().map((questId) => this.quests.get(questId));
     const completed = steps.filter((quest) => quest?.status === "completed").length;
-    const active = steps.find((quest) => quest && quest.status !== "completed");
+    const active = steps.find((quest) => quest && quest.status !== "completed" && this.isQuestUnlocked(quest));
 
     if (!active) {
-      return "目前內容完成";
+      return completed >= steps.length ? "目前內容完成" : "下一階段尚未解鎖";
     }
 
     return `${completed + 1}/${steps.length} ${active.title}`;
@@ -3735,7 +3751,10 @@ export class GameScene extends Phaser.Scene {
     return this.getChapterQuestIds()
       .map((questId, index) => {
         const quest = this.quests.get(questId);
-        return quest?.status === "completed" ? `${index + 1}✓` : `${index + 1}-`;
+        if (quest?.status === "completed") {
+          return `${index + 1}✓`;
+        }
+        return quest && this.isQuestUnlocked(quest) ? `${index + 1}-` : `${index + 1}鎖`;
       })
       .join(" ");
   }
@@ -3764,7 +3783,7 @@ export class GameScene extends Phaser.Scene {
 
     const activeQuest = [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .find((quest) => quest.status !== "completed");
+      .find((quest) => quest.status !== "completed" && this.isQuestUnlocked(quest));
     if (activeQuest) {
       const hint = this.getQuestDirectionHint(activeQuest);
       return `下一步：${this.formatQuestLine(activeQuest)}${hint}${this.getSafeReturnHint()}`;
@@ -3812,7 +3831,7 @@ export class GameScene extends Phaser.Scene {
   private getGuidedQuest() {
     return [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .find((quest) => quest.status !== "completed");
+      .find((quest) => quest.status !== "completed" && this.isQuestUnlocked(quest));
   }
 
   private formatTargetIndicator(targetX: number, label: string) {
@@ -3866,6 +3885,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getQuestStatusPriority(quest: QuestSnapshot) {
+    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+      return 4;
+    }
+
     const statusOrder: Record<QuestSnapshot["status"], number> = {
       ready: 0,
       active: 1,
@@ -3874,6 +3897,10 @@ export class GameScene extends Phaser.Scene {
     };
 
     return statusOrder[quest.status];
+  }
+
+  private isQuestUnlocked(quest: QuestSnapshot) {
+    return (quest.prerequisiteQuestIds ?? []).every((questId) => this.quests.get(questId)?.status === "completed");
   }
 
   private getNearestPortal() {
@@ -3887,21 +3914,41 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBossAreaWarning() {
-    if (!this.player || this.currentMapId !== "mist-breakwater" || this.localHp <= 0) {
+    if (!this.player || this.localHp <= 0) {
       return;
     }
 
-    if (this.player.x >= 1360 && !this.bossEntryHintShown) {
-      this.bossEntryHintShown = true;
-      this.showDialogue("前方是潮眼守衛平台。先確認生命與法力，必要時按 H 回安全區。");
+    const bossArea =
+      this.currentMapId === "mist-breakwater"
+        ? {
+            entryX: 1360,
+            repeatX: 1450,
+            dialogue: "前方是潮眼守衛平台。先確認生命與法力，必要時按 H 回安全區。",
+            toast: "前方為潮眼守衛區，建議補滿生命後再挑戰。"
+          }
+        : this.currentMapId === "old-harbor-warehouse"
+          ? {
+              entryX: 1520,
+              repeatX: 1640,
+              dialogue: "前方是倉庫巡弋者活動區。先確認補給與裝備，必要時按 H 回入口。",
+              toast: "前方為倉庫巡弋者區，建議裝備舊港短刀或補丁布衣後再挑戰。"
+            }
+          : undefined;
+    if (!bossArea) {
+      return;
     }
 
-    if (this.player.x < 1450 || this.time.now < this.bossWarningReadyAt) {
+    if (this.player.x >= bossArea.entryX && !this.bossEntryHintShown) {
+      this.bossEntryHintShown = true;
+      this.showDialogue(bossArea.dialogue);
+    }
+
+    if (this.player.x < bossArea.repeatX || this.time.now < this.bossWarningReadyAt) {
       return;
     }
 
     this.bossWarningReadyAt = this.time.now + 8500;
-    this.showToast("前方為潮眼守衛區，建議補滿生命後再挑戰。");
+    this.showToast(bossArea.toast);
   }
 
   private updateBossStatusPanel() {
@@ -3909,44 +3956,62 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const watcher = this.monsterSnapshots.get("tide-watcher-1");
-    const shouldShow = this.shouldShowBossStatus();
-    if (!shouldShow || !watcher) {
+    const boss = this.getCurrentBossStatusTarget();
+    if (!boss) {
       this.bossHpBack.setVisible(false);
       this.bossHpFill.setVisible(false);
       this.bossStatusText.setVisible(false);
       return;
     }
 
-    const hpRatio = watcher.maxHp > 0 ? Phaser.Math.Clamp(watcher.hp / watcher.maxHp, 0, 1) : 0;
+    const hpRatio = boss.monster.maxHp > 0 ? Phaser.Math.Clamp(boss.monster.hp / boss.monster.maxHp, 0, 1) : 0;
     this.bossHpBack.setVisible(true);
     this.bossHpFill.setVisible(true).setDisplaySize(280 * hpRatio, 10);
     this.bossStatusText.setVisible(true);
 
-    if (!watcher.alive) {
+    if (!boss.monster.alive) {
       this.bossHpFill.setVisible(false);
-      this.bossStatusText.setText("潮眼守衛已擊退 | 拾取甲片後找測潮學徒阿澄");
+      this.bossStatusText.setText(boss.defeatedText);
       this.bossStatusText.setColor(ColorText.jade);
       return;
     }
 
-    const watcherQuest = this.quests.get("tide-watcher-core");
-    const questHint = watcherQuest?.status === "active" ? "任務目標" : "危險區域";
-    this.bossStatusText.setText(`潮眼守衛 ${watcher.hp}/${watcher.maxHp} | ${questHint} | K/J 攻擊`);
+    const quest = this.quests.get(boss.questId);
+    const questHint = quest?.status === "active" ? "任務目標" : "危險區域";
+    this.bossStatusText.setText(`${boss.name} ${boss.monster.hp}/${boss.monster.maxHp} | ${questHint} | K/J 攻擊`);
     this.bossStatusText.setColor(ColorText.gold);
   }
 
-  private shouldShowBossStatus() {
-    if (this.currentMapId !== "mist-breakwater") {
-      return false;
+  private getCurrentBossStatusTarget() {
+    if (this.currentMapId === "mist-breakwater") {
+      const monster = this.monsterSnapshots.get("tide-watcher-1");
+      const quest = this.quests.get("tide-watcher-core");
+      const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1320));
+      return monster && shouldShow
+        ? {
+            monster,
+            questId: "tide-watcher-core",
+            name: "潮眼守衛",
+            defeatedText: "潮眼守衛已擊退 | 拾取甲片後找測潮學徒阿澄"
+          }
+        : undefined;
     }
 
-    const watcherQuest = this.quests.get("tide-watcher-core");
-    if (watcherQuest && watcherQuest.status !== "completed" && watcherQuest.status !== "available") {
-      return true;
+    if (this.currentMapId === "old-harbor-warehouse") {
+      const monster = this.monsterSnapshots.get("warehouse-sentry-1");
+      const quest = this.quests.get("warehouse-sentry-core");
+      const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1500));
+      return monster && shouldShow
+        ? {
+            monster,
+            questId: "warehouse-sentry-core",
+            name: "倉庫巡弋者",
+            defeatedText: "倉庫巡弋者已擊退 | 回報倉庫管理員阿桂"
+          }
+        : undefined;
     }
 
-    return Boolean(this.player && this.player.x >= 1320);
+    return undefined;
   }
 
   private updateShopPanel() {
@@ -3973,6 +4038,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private formatQuestLine(quest: QuestSnapshot) {
+    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+      return `${quest.title}：${this.getQuestLockedHint(quest)}`;
+    }
+
     if (quest.status === "available") {
       return `找 ${this.getNpcName(quest.npcId)} 接任務`;
     }
@@ -3986,6 +4055,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     return `${quest.title}：完成`;
+  }
+
+  private getQuestLockedHint(quest: QuestSnapshot) {
+    const missingQuestId = (quest.prerequisiteQuestIds ?? []).find((questId) => this.quests.get(questId)?.status !== "completed");
+    return `先完成「${this.quests.get(missingQuestId ?? "")?.title ?? "前置任務"}」`;
   }
 
   private formatQuestProgress(quest: QuestSnapshot) {

@@ -60,6 +60,8 @@ export interface MonsterSnapshot {
 
 export type ItemId =
   | "small-hp-potion"
+  | "medium-hp-potion"
+  | "harbor-lunchbox"
   | "rat-tail"
   | "mist-gel"
   | "watcher-shell"
@@ -131,6 +133,20 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "consumable",
     maxStack: 20,
     healHp: 35
+  },
+  "medium-hp-potion": {
+    id: "medium-hp-potion",
+    name: "中型補血藥水",
+    kind: "consumable",
+    maxStack: 20,
+    healHp: 70
+  },
+  "harbor-lunchbox": {
+    id: "harbor-lunchbox",
+    name: "霧港便當",
+    kind: "consumable",
+    maxStack: 10,
+    healHp: 110
   },
   "rat-tail": {
     id: "rat-tail",
@@ -312,6 +328,8 @@ export interface QuestDefinition {
   targetCount: number;
   rewardExp: number;
   rewardGold: number;
+  chapterId?: "chapter-1" | "warehouse";
+  prerequisiteQuestIds?: string[];
 }
 
 export interface QuestSnapshot extends QuestDefinition {
@@ -331,7 +349,8 @@ export const FIELD_RAT_QUEST: QuestDefinition = {
   },
   targetCount: 3,
   rewardExp: 45,
-  rewardGold: 25
+  rewardGold: 25,
+  chapterId: "chapter-1"
 };
 
 export const RAT_TAIL_QUEST: QuestDefinition = {
@@ -346,7 +365,9 @@ export const RAT_TAIL_QUEST: QuestDefinition = {
   },
   targetCount: 2,
   rewardExp: 35,
-  rewardGold: 20
+  rewardGold: 20,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["field-rat-cleanup"]
 };
 
 export const MIST_GEL_QUEST: QuestDefinition = {
@@ -361,7 +382,9 @@ export const MIST_GEL_QUEST: QuestDefinition = {
   },
   targetCount: 2,
   rewardExp: 52,
-  rewardGold: 30
+  rewardGold: 30,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["rat-tail-salve"]
 };
 
 export const BREAKWATER_SCOUT_QUEST: QuestDefinition = {
@@ -375,7 +398,9 @@ export const BREAKWATER_SCOUT_QUEST: QuestDefinition = {
   },
   targetCount: 4,
   rewardExp: 70,
-  rewardGold: 40
+  rewardGold: 40,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["mist-gel-lantern"]
 };
 
 export const TIDE_WATCHER_QUEST: QuestDefinition = {
@@ -389,7 +414,9 @@ export const TIDE_WATCHER_QUEST: QuestDefinition = {
   },
   targetCount: 1,
   rewardExp: 120,
-  rewardGold: 80
+  rewardGold: 80,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["breakwater-scout"]
 };
 
 export const BREAKWATER_LANTERN_QUEST: QuestDefinition = {
@@ -403,7 +430,9 @@ export const BREAKWATER_LANTERN_QUEST: QuestDefinition = {
   },
   targetCount: 3,
   rewardExp: 80,
-  rewardGold: 45
+  rewardGold: 45,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["tide-watcher-core"]
 };
 
 export const WATCHER_SHELL_QUEST: QuestDefinition = {
@@ -418,7 +447,9 @@ export const WATCHER_SHELL_QUEST: QuestDefinition = {
   },
   targetCount: 1,
   rewardExp: 95,
-  rewardGold: 65
+  rewardGold: 65,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["breakwater-lantern-repair"]
 };
 
 export const TIDE_GAUGE_QUEST: QuestDefinition = {
@@ -432,7 +463,9 @@ export const TIDE_GAUGE_QUEST: QuestDefinition = {
   },
   targetCount: 1,
   rewardExp: 70,
-  rewardGold: 35
+  rewardGold: 35,
+  chapterId: "chapter-1",
+  prerequisiteQuestIds: ["watcher-shell-report"]
 };
 
 export const WAREHOUSE_RAT_QUEST: QuestDefinition = {
@@ -446,7 +479,9 @@ export const WAREHOUSE_RAT_QUEST: QuestDefinition = {
   },
   targetCount: 4,
   rewardExp: 90,
-  rewardGold: 55
+  rewardGold: 55,
+  chapterId: "warehouse",
+  prerequisiteQuestIds: ["tide-gauge-survey"]
 };
 
 export const DAMP_WOOD_QUEST: QuestDefinition = {
@@ -461,7 +496,9 @@ export const DAMP_WOOD_QUEST: QuestDefinition = {
   },
   targetCount: 3,
   rewardExp: 105,
-  rewardGold: 60
+  rewardGold: 60,
+  chapterId: "warehouse",
+  prerequisiteQuestIds: ["warehouse-rat-cleanup"]
 };
 
 export const MIST_PUPPET_QUEST: QuestDefinition = {
@@ -475,7 +512,9 @@ export const MIST_PUPPET_QUEST: QuestDefinition = {
   },
   targetCount: 3,
   rewardExp: 120,
-  rewardGold: 70
+  rewardGold: 70,
+  chapterId: "warehouse",
+  prerequisiteQuestIds: ["damp-wood-sample"]
 };
 
 export const WAREHOUSE_SENTRY_QUEST: QuestDefinition = {
@@ -489,7 +528,9 @@ export const WAREHOUSE_SENTRY_QUEST: QuestDefinition = {
   },
   targetCount: 1,
   rewardExp: 150,
-  rewardGold: 95
+  rewardGold: 95,
+  chapterId: "warehouse",
+  prerequisiteQuestIds: ["mist-puppet-clear"]
 };
 
 export const QUEST_DEFINITIONS: QuestDefinition[] = [
@@ -516,6 +557,16 @@ export const FOG_HARBOR_SHOP: ShopDefinition = {
       itemId: "small-hp-potion",
       quantity: 1,
       priceGold: 15
+    },
+    {
+      itemId: "medium-hp-potion",
+      quantity: 1,
+      priceGold: 38
+    },
+    {
+      itemId: "harbor-lunchbox",
+      quantity: 1,
+      priceGold: 60
     },
     {
       itemId: "training-sword",

@@ -1750,6 +1750,9 @@ function createEquipmentDrops(mapId: MapId, x: number, y: number) {
 
 function createMonsterDrops(monster: MonsterSnapshot) {
   createItemDrop("small-hp-potion", 1, monster.mapId, monster.x, monster.y);
+  if ((monster.kind === "mist-puppet" || monster.kind === "warehouse-sentry") && Math.random() <= 0.35) {
+    createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x - 34, monster.y);
+  }
 
   if (monster.kind === "field-rat") {
     createItemDrop("rat-tail", 1, monster.mapId, monster.x + 28, monster.y);
@@ -2046,6 +2049,27 @@ function canCompleteQuest(playerId: string, quest: QuestSnapshot) {
   return getQuestProgress(playerId, quest) >= quest.targetCount;
 }
 
+function areQuestPrerequisitesMet(quests: Map<string, QuestSnapshot>, quest: QuestSnapshot) {
+  return (quest.prerequisiteQuestIds ?? []).every((questId) => quests.get(questId)?.status === "completed");
+}
+
+function getQuestLockText(quests: Map<string, QuestSnapshot>, quest: QuestSnapshot) {
+  const missingQuestId = (quest.prerequisiteQuestIds ?? []).find((questId) => quests.get(questId)?.status !== "completed");
+  if (!missingQuestId) {
+    return "";
+  }
+
+  return `尚未解鎖：先完成「${quests.get(missingQuestId)?.title ?? "前置任務"}」。`;
+}
+
+function syncUnlockedAvailableQuests(playerId: string, quests: Map<string, QuestSnapshot>) {
+  for (const quest of quests.values()) {
+    if (quest.status === "available" && areQuestPrerequisitesMet(quests, quest)) {
+      sendSingleQuest(playerId, quest);
+    }
+  }
+}
+
 function consumeQuestItems(playerId: string, quest: QuestSnapshot) {
   if (quest.objective.type !== "collect" || !quest.objective.consumeItems) {
     return;
@@ -2161,12 +2185,23 @@ function handleNpcInteract(playerId: string, npcId: string) {
 
   const quests = playerQuests.get(playerId);
   const npcQuests = [...(quests?.values() ?? [])].filter((candidate) => candidate.npcId === npcId);
+  const unlockedAvailableQuest = npcQuests.find(
+    (candidate) => candidate.status === "available" && areQuestPrerequisitesMet(quests ?? new Map(), candidate)
+  );
+  const lockedAvailableQuest = npcQuests.find(
+    (candidate) => candidate.status === "available" && !areQuestPrerequisitesMet(quests ?? new Map(), candidate)
+  );
   const quest =
     npcQuests.find((candidate) => candidate.status === "ready") ??
     npcQuests.find((candidate) => candidate.status === "active") ??
-    npcQuests.find((candidate) => candidate.status === "available") ??
+    unlockedAvailableQuest ??
     npcQuests[0];
   if (!quests || !quest) {
+    return;
+  }
+
+  if (quest.status === "available" && !areQuestPrerequisitesMet(quests, quest)) {
+    sendQuestNotice(playerId, getQuestLockText(quests, lockedAvailableQuest ?? quest));
     return;
   }
 
@@ -2219,6 +2254,7 @@ function handleNpcInteract(playerId: string, npcId: string) {
     quests.set(quest.id, completedQuest);
     sendSingleQuest(playerId, completedQuest);
     sendQuestNotice(playerId, "任務完成：已領取獎勵。", quest.rewardExp, quest.rewardGold);
+    syncUnlockedAvailableQuests(playerId, quests);
     savePlayerGame(playerId);
     snapshot();
     return;

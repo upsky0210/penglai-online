@@ -3,6 +3,25 @@ import { WebSocket } from "ws";
 const wsUrl = process.env.SMOKE_WS_URL ?? "ws://localhost:8787";
 const slot = `interactable-smoke-${Date.now()}`;
 
+const monsters = {
+  rats: [
+    { id: "rat-1", x: 610, y: 475 },
+    { id: "rat-2", x: 785, y: 475 },
+    { id: "rat-3", x: 1160, y: 374 }
+  ],
+  harborSlimes: [
+    { id: "slime-1", x: 1700, y: 475 },
+    { id: "slime-2", x: 1970, y: 475 }
+  ],
+  breakwaterSlimes: [
+    { id: "breakwater-slime-1", x: 520, y: 475 },
+    { id: "breakwater-slime-2", x: 870, y: 475 },
+    { id: "breakwater-slime-3", x: 1240, y: 475 },
+    { id: "breakwater-slime-1", x: 520, y: 475 }
+  ],
+  tideWatcher: { id: "tide-watcher-1", x: 1585, y: 399 }
+};
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -18,6 +37,8 @@ function connect() {
       playerId: "",
       mapId: "fog-harbor-test",
       quests: new Map(),
+      itemDrops: [],
+      monsters: [],
       notices: []
     };
     const timer = setTimeout(() => {
@@ -29,6 +50,7 @@ function connect() {
       const message = JSON.parse(data.toString());
       if (message.type === "session:welcome") {
         state.playerId = message.playerId;
+        state.mapId = message.mapId ?? state.mapId;
         clearTimeout(timer);
         resolve({ ws, state });
         return;
@@ -36,6 +58,11 @@ function connect() {
 
       if (message.type === "map:change") {
         state.mapId = message.mapId;
+      }
+
+      if (message.type === "world:snapshot") {
+        state.monsters = message.monsters ?? [];
+        state.itemDrops = message.itemDrops ?? [];
       }
 
       if (message.type === "quest:update") {
@@ -53,30 +80,122 @@ function connect() {
   });
 }
 
-function playerUpdate(state, x, y, mapId = state.mapId) {
+function playerUpdate(state, x, y, mapId = state.mapId, facing = "right") {
   return {
     type: "player:update",
     player: {
       id: state.playerId,
-      name: "互動測試旅人",
-      className: "swordsman",
+      name: "互動測試員",
+      className: "hunter",
       mapId,
       x,
       y,
-      facing: "right",
+      facing,
       animation: "idle"
     }
   };
 }
 
-function assertQuest(state, expectedStatus, expectedProgress) {
-  const quest = state.quests.get("breakwater-lantern-repair");
+async function waitFor(predicate, label, timeoutMs = 8000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = predicate();
+    if (result) {
+      return result;
+    }
+    await wait(80);
+  }
+
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+async function interactNpc(ws, state, mapId, x, y, npcId) {
+  send(ws, playerUpdate(state, x, y, mapId));
+  await wait(120);
+  send(ws, { type: "npc:interact", npcId });
+  await wait(260);
+}
+
+async function finishQuestAtNpc(ws, state, questId, mapId, x, y, npcId) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await interactNpc(ws, state, mapId, x, y, npcId);
+    const quest = state.quests.get(questId);
+    if (quest?.status === "completed") {
+      return quest;
+    }
+  }
+
+  const quest = state.quests.get(questId);
+  throw new Error(`${questId} expected completed, got ${quest?.status}/${quest?.progress}`);
+}
+
+async function acceptQuest(ws, state, questId, mapId, x, y, npcId) {
+  await interactNpc(ws, state, mapId, x, y, npcId);
+  return waitFor(
+    () => {
+      const quest = state.quests.get(questId);
+      return quest?.status === "active" ? quest : undefined;
+    },
+    `${questId} active`
+  );
+}
+
+async function defeatMonster(ws, state, mapId, monster) {
+  const liveMonster = await waitFor(
+    () => state.monsters.find((candidate) => candidate.id === monster.id && candidate.alive),
+    `${monster.id} alive`,
+    14000
+  );
+
+  for (let attack = 0; attack < 32; attack += 1) {
+    const currentMonster = state.monsters.find((candidate) => candidate.id === monster.id) ?? liveMonster;
+    if (!currentMonster.alive) {
+      return;
+    }
+
+    const attackX = currentMonster.x - 92;
+    send(ws, playerUpdate(state, attackX, currentMonster.y, mapId, "right"));
+    await wait(45);
+    send(ws, {
+      type: "combat:attack",
+      attackId: `${monster.id}-${Date.now()}-${attack}`,
+      isSkill: attack % 5 === 0
+    });
+    await wait(85);
+
+    const snapshotMonster = state.monsters.find((candidate) => candidate.id === monster.id);
+    if (snapshotMonster && !snapshotMonster.alive) {
+      return;
+    }
+  }
+
+  throw new Error(`failed to defeat ${monster.id}`);
+}
+
+async function pickupItem(ws, state, mapId, itemId) {
+  const drop = await waitFor(
+    () => state.itemDrops.find((candidate) => candidate.itemId === itemId && candidate.mapId === mapId),
+    `${itemId} drop`
+  );
+  send(ws, playerUpdate(state, drop.x, drop.y, mapId));
+  await wait(120);
+  send(ws, { type: "item:pickup", dropId: drop.id });
+  await wait(220);
+}
+
+async function defeatAndPickup(ws, state, mapId, monster, itemId) {
+  await defeatMonster(ws, state, mapId, monster);
+  await pickupItem(ws, state, mapId, itemId);
+}
+
+function assertQuest(state, questId, expectedStatus, expectedProgress) {
+  const quest = state.quests.get(questId);
   if (!quest) {
-    throw new Error("missing breakwater-lantern-repair quest");
+    throw new Error(`missing ${questId} quest`);
   }
 
   if (quest.status !== expectedStatus || quest.progress !== expectedProgress) {
-    throw new Error(`lantern quest expected ${expectedStatus}/${expectedProgress}, got ${quest.status}/${quest.progress}`);
+    throw new Error(`${questId} expected ${expectedStatus}/${expectedProgress}, got ${quest.status}/${quest.progress}`);
   }
 
   return quest;
@@ -85,44 +204,68 @@ function assertQuest(state, expectedStatus, expectedProgress) {
 const { ws, state } = await connect();
 await wait(500);
 
+await acceptQuest(ws, state, "field-rat-cleanup", "fog-harbor-test", 350, 466, "fog-harbor-guard");
+for (const rat of monsters.rats) {
+  await defeatMonster(ws, state, "fog-harbor-test", rat);
+}
+await finishQuestAtNpc(ws, state, "field-rat-cleanup", "fog-harbor-test", 350, 466, "fog-harbor-guard");
+
+await acceptQuest(ws, state, "rat-tail-salve", "fog-harbor-test", 185, 466, "herbalist-lin");
+await pickupItem(ws, state, "fog-harbor-test", "rat-tail");
+await pickupItem(ws, state, "fog-harbor-test", "rat-tail");
+await finishQuestAtNpc(ws, state, "rat-tail-salve", "fog-harbor-test", 185, 466, "herbalist-lin");
+
+await acceptQuest(ws, state, "mist-gel-lantern", "fog-harbor-test", 1510, 466, "lighthouse-apprentice");
+for (const slime of monsters.harborSlimes) {
+  await defeatAndPickup(ws, state, "fog-harbor-test", slime, "mist-gel");
+}
+await finishQuestAtNpc(ws, state, "mist-gel-lantern", "fog-harbor-test", 1510, 466, "lighthouse-apprentice");
+
 send(ws, playerUpdate(state, 2285, 430, "fog-harbor-test"));
 await wait(150);
 send(ws, { type: "portal:enter", portalId: "to-breakwater" });
 await wait(500);
 
-send(ws, playerUpdate(state, 1320, 430, "mist-breakwater"));
-await wait(150);
-send(ws, { type: "npc:interact", npcId: "tide-researcher-yu" });
-await wait(300);
-assertQuest(state, "active", 0);
+await acceptQuest(ws, state, "breakwater-scout", "mist-breakwater", 190, 466, "breakwater-scout");
+for (const slime of monsters.breakwaterSlimes) {
+  await defeatMonster(ws, state, "mist-breakwater", slime);
+}
+await finishQuestAtNpc(ws, state, "breakwater-scout", "mist-breakwater", 190, 466, "breakwater-scout");
+
+await acceptQuest(ws, state, "tide-watcher-core", "mist-breakwater", 190, 466, "breakwater-scout");
+await defeatMonster(ws, state, "mist-breakwater", monsters.tideWatcher);
+await finishQuestAtNpc(ws, state, "tide-watcher-core", "mist-breakwater", 190, 466, "breakwater-scout");
+
+await acceptQuest(ws, state, "breakwater-lantern-repair", "mist-breakwater", 1320, 466, "tide-researcher-yu");
+assertQuest(state, "breakwater-lantern-repair", "active", 0);
 
 send(ws, playerUpdate(state, 515, 438, "mist-breakwater"));
 await wait(120);
 send(ws, { type: "map:interact", interactableId: "lantern-west" });
 await wait(300);
-let quest = assertQuest(state, "active", 1);
+let quest = assertQuest(state, "breakwater-lantern-repair", "active", 1);
 if (!quest.interactedTargetIds?.includes("lantern-west")) {
   throw new Error("lantern-west was not recorded as interacted");
 }
 
 send(ws, { type: "map:interact", interactableId: "lantern-west" });
 await wait(300);
-assertQuest(state, "active", 1);
+assertQuest(state, "breakwater-lantern-repair", "active", 1);
 
 send(ws, playerUpdate(state, 900, 438, "mist-breakwater"));
 await wait(120);
 send(ws, { type: "map:interact", interactableId: "lantern-mid" });
 await wait(300);
-assertQuest(state, "active", 2);
+assertQuest(state, "breakwater-lantern-repair", "active", 2);
 
 send(ws, playerUpdate(state, 1270, 438, "mist-breakwater"));
 await wait(120);
 send(ws, { type: "map:interact", interactableId: "lantern-east" });
 await wait(300);
-quest = assertQuest(state, "ready", 3);
+quest = assertQuest(state, "breakwater-lantern-repair", "ready", 3);
 if (new Set(quest.interactedTargetIds ?? []).size !== 3) {
   throw new Error("lantern quest did not record three unique interactables");
 }
 
 ws.close();
-console.log("Interactable smoke passed: unique lantern repairs tracked.");
+console.log("Interactable smoke passed: chapter prerequisites and unique lantern repairs tracked.");
