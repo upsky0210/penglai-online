@@ -138,7 +138,10 @@ const monsterFallbackTextureKeys: Record<MonsterSnapshot["kind"], string> = {
   "coral-warden": "monster_coral_warden_fallback",
   "archive-drifter": "monster_archive_drifter_fallback",
   "ink-sprite": "monster_ink_sprite_fallback",
-  "archive-guardian": "monster_archive_guardian_fallback"
+  "archive-guardian": "monster_archive_guardian_fallback",
+  "star-moth": "monster_star_moth_fallback",
+  "lens-sentinel": "monster_lens_sentinel_fallback",
+  "astral-keeper": "monster_astral_keeper_fallback"
 };
 
 export class GameScene extends Phaser.Scene {
@@ -357,7 +360,7 @@ export class GameScene extends Phaser.Scene {
           "← / → 切換職業 | N 切換預設名稱",
           "直接輸入英文/數字改名 | Backspace 刪字",
           "R 新存檔 | L 上一個存檔 | Y 複製代碼 | G 登出",
-          "1/2/3 切換帳號存檔"
+          "1/2/3 切換帳號存檔（登入後）"
         ].join("\n"),
         {
           fontSize: "14px",
@@ -432,10 +435,10 @@ export class GameScene extends Phaser.Scene {
     );
     this.titleAuthText?.setText(
       this.authSessionId
-        ? `Google 帳號：${this.authAccountLabel || "已登入"}，會使用帳號綁定存檔。`
+        ? `模式：學校 Google 帳號（${this.authAccountLabel || "已登入"}），存檔會綁定帳號。`
         : googleClientId
-          ? "可使用學校 Google 帳號登入。"
-          : "Google 登入尚未設定，仍可使用本機存檔遊玩。"
+          ? "模式：匿名測試；可使用學校 Google 帳號登入後綁定存檔。"
+          : "模式：匿名測試；Google 登入尚未設定，仍可使用本機存檔。"
     );
   }
 
@@ -529,8 +532,34 @@ export class GameScene extends Phaser.Scene {
           <input name="testerName" type="text" maxlength="40" required />
         </label>
         <label>
+          <span>學校</span>
+          <input name="schoolName" type="text" maxlength="60" placeholder="可填學校名稱或測試場次" />
+        </label>
+        <label>
           <span>班級 / 組別</span>
           <input name="classGroup" type="text" maxlength="40" required />
+        </label>
+        <label>
+          <span>回饋分類</span>
+          <select name="feedbackCategory">
+            <option value="bug">Bug / 錯誤</option>
+            <option value="navigation">找不到路 / 任務不清楚</option>
+            <option value="balance">太難 / 太簡單</option>
+            <option value="ui">介面 / 文字</option>
+            <option value="performance">卡頓 / 連線</option>
+            <option value="content">希望新增內容</option>
+            <option value="other" selected>其他</option>
+          </select>
+        </label>
+        <label>
+          <span>測試裝置</span>
+          <select name="deviceType">
+            <option value="desktop" selected>桌機</option>
+            <option value="laptop">筆電</option>
+            <option value="tablet">平板</option>
+            <option value="mobile">手機</option>
+            <option value="unknown">不確定</option>
+          </select>
         </label>
         <label>
           <span>難度 1-5</span>
@@ -550,6 +579,10 @@ export class GameScene extends Phaser.Scene {
           <span>建議</span>
           <textarea name="suggestion" maxlength="360" required placeholder="例如：希望提示更明顯、怪物少一點、加更多任務"></textarea>
         </label>
+        <label class="feedback-inline">
+          <input name="contactAllowed" type="checkbox" value="true" />
+          <span>老師可以根據這則回饋再詢問我</span>
+        </label>
         <footer>
           <span>Esc 或 T 關閉，送出後老師可在管理面板查看。</span>
           <button type="submit">送出回饋</button>
@@ -561,9 +594,11 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard!.enabled = false;
 
     const testerInput = overlay.querySelector<HTMLInputElement>('input[name="testerName"]');
+    const schoolInput = overlay.querySelector<HTMLInputElement>('input[name="schoolName"]');
     const classInput = overlay.querySelector<HTMLInputElement>('input[name="classGroup"]');
     try {
       testerInput!.value = window.localStorage.getItem("penglai-feedback-tester") ?? "";
+      schoolInput!.value = window.localStorage.getItem("penglai-feedback-school") ?? "";
       classInput!.value = window.localStorage.getItem("penglai-feedback-class") ?? "";
     } catch {
       // Feedback can still be submitted without remembering defaults.
@@ -608,6 +643,7 @@ export class GameScene extends Phaser.Scene {
     this.feedbackSubmitReadyAt = now + 1200;
     const formData = new FormData(form);
     const testerName = String(formData.get("testerName") ?? "").trim();
+    const schoolName = String(formData.get("schoolName") ?? "").trim();
     const classGroup = String(formData.get("classGroup") ?? "").trim();
     const stuckPoint = String(formData.get("stuckPoint") ?? "").trim();
     const suggestion = String(formData.get("suggestion") ?? "").trim();
@@ -625,14 +661,20 @@ export class GameScene extends Phaser.Scene {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           testerName,
+          schoolName,
           classGroup,
+          feedbackCategory: String(formData.get("feedbackCategory") ?? "other"),
+          deviceType: String(formData.get("deviceType") ?? "unknown"),
           difficulty: Number(formData.get("difficulty") ?? 3),
           stuckPoint,
           suggestion,
+          contactAllowed: formData.get("contactAllowed") === "true",
           playerName: this.localPlayerName || this.characterName,
           saveSlot: this.currentSaveSlot || this.getSaveSlot(),
           sessionId: this.authSessionId || this.getAuthSessionId(),
           mapId: this.currentMapId,
+          currentZone: this.getCurrentZoneName(this.player?.x ?? 0, this.player?.y ?? 0).name,
+          activeQuest: this.getGuidedQuest() ? this.formatQuestLine(this.getGuidedQuest()!) : "無進行中任務",
           chapterProgress: `${this.getChapterStepSummary()} / ${this.getChapterChecklist()}`
         })
       });
@@ -642,6 +684,7 @@ export class GameScene extends Phaser.Scene {
 
       try {
         window.localStorage.setItem("penglai-feedback-tester", testerName);
+        window.localStorage.setItem("penglai-feedback-school", schoolName);
         window.localStorage.setItem("penglai-feedback-class", classGroup);
       } catch {
         // Remembering local form defaults is optional.
@@ -1403,6 +1446,49 @@ export class GameScene extends Phaser.Scene {
     g.generateTexture("monster_archive_guardian_fallback", 100, 102);
     g.clear();
 
+    g.fillStyle(0x9f7a37, 0.86);
+    g.fillCircle(28, 24, 15);
+    g.fillStyle(0xf0d68a, 0.72);
+    g.fillTriangle(27, 22, 5, 8, 9, 38);
+    g.fillTriangle(29, 22, 51, 8, 47, 38);
+    g.fillStyle(0xd9e6e5, 0.75);
+    g.fillCircle(22, 21, 4);
+    g.fillCircle(34, 21, 4);
+    g.fillStyle(0x253342);
+    g.fillRect(42, 24, 8, 4);
+    g.generateTexture("monster_star_moth_fallback", 56, 48);
+    g.clear();
+
+    g.fillStyle(0x24334e);
+    g.fillRect(16, 16, 34, 36);
+    g.fillStyle(0x4f7c86);
+    g.fillRect(10, 26, 46, 18);
+    g.fillStyle(0xf0d68a);
+    g.fillRect(22, 6, 22, 12);
+    g.fillStyle(0xd9e6e5, 0.9);
+    g.fillCircle(33, 24, 10);
+    g.fillStyle(0x122a20);
+    g.fillRect(24, 52, 7, 8);
+    g.fillRect(43, 52, 7, 8);
+    g.generateTexture("monster_lens_sentinel_fallback", 64, 58);
+    g.clear();
+
+    g.fillStyle(0x172536);
+    g.fillRect(26, 18, 52, 64);
+    g.fillStyle(0x596b8f);
+    g.fillRect(18, 32, 68, 30);
+    g.fillStyle(0xf0d68a);
+    g.fillRect(36, 8, 32, 14);
+    g.fillStyle(0xd9e6e5, 0.85);
+    g.fillCircle(52, 34, 14);
+    g.fillStyle(0x8fd9a8, 0.7);
+    g.fillCircle(52, 34, 7);
+    g.fillStyle(0x1b241f);
+    g.fillRect(32, 82, 10, 12);
+    g.fillRect(64, 82, 10, 12);
+    g.generateTexture("monster_astral_keeper_fallback", 104, 104);
+    g.clear();
+
     g.destroy();
   }
 
@@ -1684,6 +1770,37 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.currentMapId === "starlit-observatory") {
+      this.addSignpost(310, 456, "回報：觀測員阿曜");
+      this.addSignpost(520, 456, "星砂蛾群");
+      this.addSignpost(1120, 456, "觀測鏡");
+      this.addSignpost(1660, 456, "星鏡哨兵");
+      this.addSignpost(2280, 456, "星穹守望者");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(760, 330, 300);
+      this.addMistVeil(1460, 318, 340);
+      this.addMistVeil(2140, 346, 360);
+      this.add.rectangle(2400, 392, 430, 122, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2400, 314, 50, ColorHex.goldBright, 0.12);
+      this.add.text(2276, 290, "星穹核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      this.add.text(2050, 348, "先校準三座觀測鏡，再挑戰核心", {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.parchment,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
     if (this.currentMapId === "old-harbor-warehouse") {
       this.addSignpost(410, 456, "清理倉鼠");
       this.addSignpost(930, 456, "霧化木偶區");
@@ -1718,9 +1835,12 @@ export class GameScene extends Phaser.Scene {
     } else if (interactable.kind === "seal") {
       this.addReefSeal(interactable.x, interactable.y, interactable.name);
       this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
-    } else {
+    } else if (interactable.kind === "tablet") {
       this.addArchiveTablet(interactable.x, interactable.y, interactable.name);
       this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else {
+      this.addObservatoryLens(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 50, 36, ColorHex.goldBright, 0.08).setStrokeStyle(1, ColorHex.gold, 0.3);
     }
 
     const status = this.add.text(interactable.x - 38, interactable.y - 118, "", {
@@ -1820,6 +1940,29 @@ export class GameScene extends Phaser.Scene {
       alpha: 0.08,
       scale: 1.35,
       duration: 1150,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addObservatoryLens(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 22, 10, 58, ColorHex.woodDark);
+    this.add.circle(x, y - 52, 24, 0x253342, 0.9).setStrokeStyle(2, ColorHex.gold, 0.62);
+    this.add.circle(x, y - 52, 15, ColorHex.mistBlue, 0.18);
+    const pulse = this.add.circle(x, y - 52, 8, ColorHex.goldBright, 0.34);
+    this.add.rectangle(x + 24, y - 28, 34, 8, ColorHex.woodPlank, 0.86);
+    this.add.text(x - 42, y - 98, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.gold,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.55,
+      duration: 980,
       yoyo: true,
       repeat: -1
     });
@@ -2710,7 +2853,12 @@ export class GameScene extends Phaser.Scene {
 
     const saveSlot = this.currentSaveSlot || this.getSaveSlot();
     const previous = this.previousSaveSlot || this.getPreviousSaveSlot();
-    const accountLine = this.authSessionId ? `帳號：${this.authAccountLabel || "Google 已登入"}` : "帳號：未登入";
+    const accountLine = this.authSessionId
+      ? `模式：學校 Google 帳號 / ${this.authAccountLabel || "Google 已登入"}`
+      : "模式：匿名測試存檔（未綁定學校帳號）";
+    const accountHint = this.authSessionId
+      ? "1/2/3 可切換帳號存檔"
+      : "Google 登入後會將存檔綁定到帳號";
     const accountSlots =
       this.authSaveSlots.length > 0
         ? this.authSaveSlots
@@ -2726,6 +2874,7 @@ export class GameScene extends Phaser.Scene {
         `目前：${this.formatSaveSlot(saveSlot)}`,
         `上一個：${previous ? this.formatSaveSlot(previous) : "無"}`,
         accountLine,
+        accountHint,
         ...accountSlots,
         "",
         "P 關閉 | R 新角色",
@@ -2930,6 +3079,18 @@ export class GameScene extends Phaser.Scene {
       return 0x6d5a83;
     }
 
+    if (kind === "astral-keeper") {
+      return 0x596b8f;
+    }
+
+    if (kind === "lens-sentinel") {
+      return 0x4f7c86;
+    }
+
+    if (kind === "star-moth") {
+      return 0x9f7a37;
+    }
+
     if (kind === "ink-sprite") {
       return 0x6aa9d8;
     }
@@ -2963,15 +3124,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getMonsterDisplaySize(kind: MonsterSnapshot["kind"]): [number, number] {
+    if (kind === "astral-keeper") {
+      return [88, 88];
+    }
+
     if (kind === "tide-watcher" || kind === "warehouse-sentry" || kind === "coral-warden" || kind === "archive-guardian") {
       return [86, 86];
+    }
+
+    if (kind === "lens-sentinel") {
+      return [58, 52];
     }
 
     if (kind === "reef-wisp" || kind === "ink-sprite") {
       return [46, 46];
     }
 
-    if (kind === "archive-drifter") {
+    if (kind === "archive-drifter" || kind === "star-moth") {
       return [50, 42];
     }
 
@@ -2987,7 +3156,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shouldUseMonsterEye(kind: MonsterSnapshot["kind"]) {
-    return !this.hasUsableTexture(monsterTextureKeys[kind]) && (kind === "tide-watcher" || kind === "coral-warden" || kind === "archive-guardian");
+    return (
+      !this.hasUsableTexture(monsterTextureKeys[kind]) &&
+      (kind === "tide-watcher" || kind === "coral-warden" || kind === "archive-guardian" || kind === "astral-keeper")
+    );
   }
 
   private applyMonsterSpriteAnimation(view: MonsterView, kind: MonsterSnapshot["kind"]) {
@@ -3777,6 +3949,10 @@ export class GameScene extends Phaser.Scene {
       return "已校準";
     }
 
+    if (interactable.kind === "lens") {
+      return "已校準";
+    }
+
     return "已調查";
   }
 
@@ -3790,6 +3966,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (interactable.kind === "tablet") {
+      return "待校準";
+    }
+
+    if (interactable.kind === "lens") {
       return "待校準";
     }
 
@@ -3887,6 +4067,18 @@ export class GameScene extends Phaser.Scene {
       return { id: "archive-entry", name: "沉船書庫入口" };
     }
 
+    if (this.currentMapId === "starlit-observatory") {
+      if (x >= 2240) {
+        return { id: "astral-keeper-core", name: "星穹核心" };
+      }
+
+      if (x >= 1360) {
+        return { id: "observatory-lens-zone", name: "觀測鏡台" };
+      }
+
+      return { id: "observatory-entry", name: "觀測台入口" };
+    }
+
     if (x >= 1850) {
       return { id: "outer-tideway", name: "潮汐林道深處" };
     }
@@ -3929,7 +4121,7 @@ export class GameScene extends Phaser.Scene {
 
     const lines = quests.flatMap((quest) => [
       `${this.getQuestStatusLabel(quest)} ${quest.title}`,
-      `  ${this.formatQuestProgress(quest)} | ${this.getNpcName(quest.npcId)} | EXP ${quest.rewardExp} / 金幣 ${quest.rewardGold}`
+      `  ${this.formatQuestProgress(quest)} | 回報：${this.getNpcName(quest.npcId)} | EXP ${quest.rewardExp} / 金幣 ${quest.rewardGold}`
     ]);
     this.questLogPanel.body.setText([...lines, "", "Q 關閉 | E 找 NPC 接取 / 回報"].join("\n"));
   }
@@ -4080,7 +4272,12 @@ export class GameScene extends Phaser.Scene {
       "ink-core-sample",
       "archive-tablet-align",
       "archive-guardian-core",
-      "archive-seal-report"
+      "archive-seal-report",
+      "star-moth-clear",
+      "lens-core-sample",
+      "observatory-lens-align",
+      "astral-keeper-core",
+      "astral-seal-report"
     ];
   }
 
@@ -4255,7 +4452,14 @@ export class GameScene extends Phaser.Scene {
                   dialogue: "前方是書庫守衛核心。先確認補給、裝備與書庫碑進度，必要時按 H 回入口。",
                   toast: "前方為書庫守衛區，建議校準書庫碑後再挑戰。"
                 }
-              : undefined;
+              : this.currentMapId === "starlit-observatory"
+                ? {
+                    entryX: 2200,
+                    repeatX: 2300,
+                    dialogue: "前方是星穹守望者核心。先確認補給、星鏡校準與裝備，必要時按 H 回入口。",
+                    toast: "前方為星穹守望者區，建議校準三座觀測鏡後再挑戰。"
+                  }
+                : undefined;
     if (!bossArea) {
       return;
     }
@@ -4357,6 +4561,20 @@ export class GameScene extends Phaser.Scene {
             questId: "archive-guardian-core",
             name: "書庫守衛",
             defeatedText: "書庫守衛已擊退 | 拾取書庫封印後找書庫管理員阿澈"
+          }
+        : undefined;
+    }
+
+    if (this.currentMapId === "starlit-observatory") {
+      const monster = this.monsterSnapshots.get("astral-keeper-1");
+      const quest = this.quests.get("astral-keeper-core");
+      const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2200));
+      return monster && shouldShow
+        ? {
+            monster,
+            questId: "astral-keeper-core",
+            name: "星穹守望者",
+            defeatedText: "星穹守望者已擊退 | 拾取星穹封印後找觀測員阿曜"
           }
         : undefined;
     }
@@ -4585,6 +4803,18 @@ export class GameScene extends Phaser.Scene {
       return "archive-guardian";
     }
 
+    if (itemId === "star-dust") {
+      return "star-moth";
+    }
+
+    if (itemId === "lens-core") {
+      return "lens-sentinel";
+    }
+
+    if (itemId === "astral-seal") {
+      return "astral-keeper";
+    }
+
     return undefined;
   }
 
@@ -4807,7 +5037,7 @@ export class GameScene extends Phaser.Scene {
     const total = this.getChapterQuestIds().length;
     return [
       `完成進度：${completed}/${total}`,
-      "霧港、海霧堤道、舊港倉庫、珊瑚潮洞與沉船書庫已納入章節導引。",
+      "霧港、海霧堤道、舊港倉庫、珊瑚潮洞、沉船書庫與星砂觀測台已納入章節導引。",
       "可繼續自由探索，或按 T 回報測試意見。",
       "下一階段：平衡數值、正式素材與學生測試回饋。"
     ].join("\n");

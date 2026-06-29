@@ -13,7 +13,8 @@ export type MapId =
   | "mist-breakwater"
   | "old-harbor-warehouse"
   | "coral-tide-cavern"
-  | "sunken-archive";
+  | "sunken-archive"
+  | "starlit-observatory";
 
 export interface PlayerSnapshot {
   id: string;
@@ -49,7 +50,10 @@ export type MonsterKind =
   | "coral-warden"
   | "archive-drifter"
   | "ink-sprite"
-  | "archive-guardian";
+  | "archive-guardian"
+  | "star-moth"
+  | "lens-sentinel"
+  | "astral-keeper";
 
 export const MONSTER_KIND_NAMES: Record<MonsterKind, string> = {
   "field-rat": "田鼠",
@@ -63,7 +67,10 @@ export const MONSTER_KIND_NAMES: Record<MonsterKind, string> = {
   "coral-warden": "珊瑚守望者",
   "archive-drifter": "沉船漂書",
   "ink-sprite": "墨潮精靈",
-  "archive-guardian": "書庫守衛"
+  "archive-guardian": "書庫守衛",
+  "star-moth": "星砂蛾",
+  "lens-sentinel": "星鏡哨兵",
+  "astral-keeper": "星穹守望者"
 };
 
 export interface MonsterSnapshot {
@@ -96,6 +103,9 @@ export type ItemId =
   | "salted-page"
   | "ink-core"
   | "archive-seal"
+  | "star-dust"
+  | "lens-core"
+  | "astral-seal"
   | "training-sword"
   | "cloth-vest"
   | "harbor-dagger"
@@ -104,7 +114,9 @@ export type ItemId =
   | "reef-blade"
   | "coral-coat"
   | "archive-wand"
-  | "scholar-robe";
+  | "scholar-robe"
+  | "star-sabre"
+  | "observer-cloak";
 
 export interface ItemDefinition {
   id: ItemId;
@@ -247,6 +259,24 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "material",
     maxStack: 10
   },
+  "star-dust": {
+    id: "star-dust",
+    name: "星砂粉塵",
+    kind: "material",
+    maxStack: 50
+  },
+  "lens-core": {
+    id: "lens-core",
+    name: "星鏡核心",
+    kind: "material",
+    maxStack: 30
+  },
+  "astral-seal": {
+    id: "astral-seal",
+    name: "星穹封印",
+    kind: "material",
+    maxStack: 10
+  },
   "training-sword": {
     id: "training-sword",
     name: "練習木劍",
@@ -318,6 +348,22 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     maxStack: 1,
     equipmentSlot: "armor",
     defenseBonus: 16
+  },
+  "star-sabre": {
+    id: "star-sabre",
+    name: "星砂彎刀",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "weapon",
+    attackBonus: 25
+  },
+  "observer-cloak": {
+    id: "observer-cloak",
+    name: "觀測者斗篷",
+    kind: "equipment",
+    maxStack: 1,
+    equipmentSlot: "armor",
+    defenseBonus: 20
   }
 };
 
@@ -358,7 +404,7 @@ export interface PortalData {
   targetY: number;
 }
 
-export type MapInteractableKind = "lantern" | "tide-gauge" | "seal" | "tablet";
+export type MapInteractableKind = "lantern" | "tide-gauge" | "seal" | "tablet" | "lens";
 
 export interface MapInteractableData {
   id: string;
@@ -429,7 +475,7 @@ export interface QuestDefinition {
   targetCount: number;
   rewardExp: number;
   rewardGold: number;
-  chapterId?: "chapter-1" | "warehouse" | "cavern" | "archive";
+  chapterId?: "chapter-1" | "warehouse" | "cavern" | "archive" | "observatory";
   prerequisiteQuestIds?: string[];
 }
 
@@ -798,6 +844,88 @@ export const ARCHIVE_SEAL_QUEST: QuestDefinition = {
   prerequisiteQuestIds: ["archive-guardian-core"]
 };
 
+export const STAR_MOTH_QUEST: QuestDefinition = {
+  id: "star-moth-clear",
+  title: "驅散星砂蛾群",
+  npcId: "observatory-keeper",
+  objective: {
+    type: "kill",
+    targetKind: "star-moth",
+    targetCount: 3
+  },
+  targetCount: 3,
+  rewardExp: 285,
+  rewardGold: 185,
+  chapterId: "observatory",
+  prerequisiteQuestIds: ["archive-seal-report"]
+};
+
+export const LENS_CORE_QUEST: QuestDefinition = {
+  id: "lens-core-sample",
+  title: "收集星鏡核心",
+  npcId: "observatory-keeper",
+  objective: {
+    type: "collect",
+    itemId: "lens-core",
+    targetCount: 2,
+    consumeItems: true
+  },
+  targetCount: 2,
+  rewardExp: 305,
+  rewardGold: 200,
+  chapterId: "observatory",
+  prerequisiteQuestIds: ["star-moth-clear"]
+};
+
+export const OBSERVATORY_LENS_QUEST: QuestDefinition = {
+  id: "observatory-lens-align",
+  title: "校準三座觀測鏡",
+  npcId: "observatory-keeper",
+  objective: {
+    type: "interact",
+    targetId: "observatory-lens",
+    targetCount: 3
+  },
+  targetCount: 3,
+  rewardExp: 335,
+  rewardGold: 215,
+  chapterId: "observatory",
+  prerequisiteQuestIds: ["lens-core-sample"]
+};
+
+export const ASTRAL_KEEPER_QUEST: QuestDefinition = {
+  id: "astral-keeper-core",
+  title: "擊退星穹守望者",
+  npcId: "observatory-keeper",
+  objective: {
+    type: "kill",
+    targetKind: "astral-keeper",
+    targetCount: 1
+  },
+  targetCount: 1,
+  rewardExp: 420,
+  rewardGold: 260,
+  chapterId: "observatory",
+  prerequisiteQuestIds: ["observatory-lens-align"]
+};
+
+export const ASTRAL_SEAL_QUEST: QuestDefinition = {
+  id: "astral-seal-report",
+  title: "回收星穹封印",
+  npcId: "observatory-keeper",
+  objective: {
+    type: "collect",
+    itemId: "astral-seal",
+    targetCount: 1,
+    consumeItems: true
+  },
+  targetCount: 1,
+  rewardExp: 360,
+  rewardGold: 230,
+  chapterId: "observatory",
+  prerequisiteQuestIds: ["astral-keeper-core"]
+};
+
 export const QUEST_DEFINITIONS: QuestDefinition[] = [
   FIELD_RAT_QUEST,
   RAT_TAIL_QUEST,
@@ -820,7 +948,12 @@ export const QUEST_DEFINITIONS: QuestDefinition[] = [
   INK_CORE_QUEST,
   ARCHIVE_TABLET_QUEST,
   ARCHIVE_GUARDIAN_QUEST,
-  ARCHIVE_SEAL_QUEST
+  ARCHIVE_SEAL_QUEST,
+  STAR_MOTH_QUEST,
+  LENS_CORE_QUEST,
+  OBSERVATORY_LENS_QUEST,
+  ASTRAL_KEEPER_QUEST,
+  ASTRAL_SEAL_QUEST
 ];
 
 export const FOG_HARBOR_SHOP: ShopDefinition = {
@@ -1611,6 +1744,17 @@ export const SUNKEN_ARCHIVE_MAP: GameMapData = {
       targetMapId: "coral-tide-cavern",
       targetX: 2260,
       targetY: 430
+    },
+    {
+      id: "to-starlit-observatory",
+      name: "前往星砂觀測台",
+      x: 2520,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "starlit-observatory",
+      targetX: 145,
+      targetY: 430
     }
   ],
   interactables: [
@@ -1742,12 +1886,183 @@ export const SUNKEN_ARCHIVE_MAP: GameMapData = {
   ]
 };
 
+export const STARLIT_OBSERVATORY_MAP: GameMapData = {
+  id: "starlit-observatory",
+  name: "星砂觀測台",
+  width: 2800,
+  height: 560,
+  playerSpawn: {
+    x: 145,
+    y: 430
+  },
+  safeZones: [
+    {
+      id: "observatory-entry",
+      name: "觀測台入口",
+      x: 160,
+      y: 420,
+      width: 320,
+      height: 180
+    }
+  ],
+  npcs: [
+    {
+      id: "observatory-keeper",
+      name: "觀測員阿曜",
+      x: 250,
+      y: 466,
+      interactionRadius: 84
+    }
+  ],
+  portals: [
+    {
+      id: "to-sunken-archive",
+      name: "返回沉船書庫",
+      x: 70,
+      y: 455,
+      width: 96,
+      height: 100,
+      targetMapId: "sunken-archive",
+      targetX: 2460,
+      targetY: 430
+    }
+  ],
+  interactables: [
+    {
+      id: "observatory-lens-west",
+      targetId: "observatory-lens",
+      kind: "lens",
+      name: "西側觀測鏡",
+      prompt: "E 校準觀測鏡",
+      x: 820,
+      y: 438,
+      interactionRadius: 78
+    },
+    {
+      id: "observatory-lens-mid",
+      targetId: "observatory-lens",
+      kind: "lens",
+      name: "中央觀測鏡",
+      prompt: "E 校準觀測鏡",
+      x: 1480,
+      y: 382,
+      interactionRadius: 78
+    },
+    {
+      id: "observatory-lens-east",
+      targetId: "observatory-lens",
+      kind: "lens",
+      name: "深處觀測鏡",
+      prompt: "E 校準觀測鏡",
+      x: 2100,
+      y: 438,
+      interactionRadius: 78
+    }
+  ],
+  platforms: [
+    { id: "ground", x: 1400, y: 506, width: 2800, height: 30 },
+    { id: "observatory-step-1", x: 600, y: 430, width: 260, height: 24 },
+    { id: "observatory-step-2", x: 920, y: 365, width: 260, height: 24 },
+    { id: "observatory-step-3", x: 1240, y: 420, width: 280, height: 24 },
+    { id: "lens-platform", x: 1480, y: 374, width: 320, height: 24 },
+    { id: "star-bridge", x: 1840, y: 430, width: 340, height: 24 },
+    { id: "keeper-platform", x: 2380, y: 430, width: 380, height: 24 }
+  ],
+  monsterSpawns: [
+    {
+      id: "star-moth-1",
+      kind: "star-moth",
+      mapId: "starlit-observatory",
+      name: "星砂蛾",
+      x: 600,
+      y: 475,
+      maxHp: 96,
+      respawnMs: 5000,
+      expReward: 58,
+      patrolMinX: 500,
+      patrolMaxX: 720,
+      patrolSpeed: 18
+    },
+    {
+      id: "star-moth-2",
+      kind: "star-moth",
+      mapId: "starlit-observatory",
+      name: "星砂蛾",
+      x: 940,
+      y: 334,
+      maxHp: 100,
+      respawnMs: 5200,
+      expReward: 60,
+      patrolMinX: 820,
+      patrolMaxX: 1060,
+      patrolSpeed: 17
+    },
+    {
+      id: "star-moth-3",
+      kind: "star-moth",
+      mapId: "starlit-observatory",
+      name: "星砂蛾",
+      x: 1260,
+      y: 475,
+      maxHp: 100,
+      respawnMs: 5200,
+      expReward: 60,
+      patrolMinX: 1120,
+      patrolMaxX: 1390,
+      patrolSpeed: 17
+    },
+    {
+      id: "lens-sentinel-1",
+      kind: "lens-sentinel",
+      mapId: "starlit-observatory",
+      name: "星鏡哨兵",
+      x: 1640,
+      y: 475,
+      maxHp: 124,
+      respawnMs: 6800,
+      expReward: 72,
+      patrolMinX: 1500,
+      patrolMaxX: 1770,
+      patrolSpeed: 15
+    },
+    {
+      id: "lens-sentinel-2",
+      kind: "lens-sentinel",
+      mapId: "starlit-observatory",
+      name: "星鏡哨兵",
+      x: 1980,
+      y: 475,
+      maxHp: 128,
+      respawnMs: 7000,
+      expReward: 75,
+      patrolMinX: 1840,
+      patrolMaxX: 2120,
+      patrolSpeed: 15
+    },
+    {
+      id: "astral-keeper-1",
+      kind: "astral-keeper",
+      mapId: "starlit-observatory",
+      name: "星穹守望者",
+      x: 2400,
+      y: 399,
+      maxHp: 400,
+      respawnMs: 20000,
+      expReward: 300,
+      patrolMinX: 2240,
+      patrolMaxX: 2580,
+      patrolSpeed: 10
+    }
+  ]
+};
+
 export const GAME_MAPS: Record<MapId, GameMapData> = {
   "fog-harbor-test": FOG_HARBOR_TEST_MAP,
   "mist-breakwater": MIST_BREAKWATER_MAP,
   "old-harbor-warehouse": OLD_HARBOR_WAREHOUSE_MAP,
   "coral-tide-cavern": CORAL_TIDE_CAVERN_MAP,
-  "sunken-archive": SUNKEN_ARCHIVE_MAP
+  "sunken-archive": SUNKEN_ARCHIVE_MAP,
+  "starlit-observatory": STARLIT_OBSERVATORY_MAP
 };
 
 export const DEFAULT_GAME_MAP = FOG_HARBOR_TEST_MAP;

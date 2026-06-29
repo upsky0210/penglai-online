@@ -116,6 +116,16 @@ export interface AdminSummary {
   recentCharacters: AdminCharacterSummary[];
 }
 
+export interface AdminSaveAudit {
+  totalCharacters: number;
+  accountBoundCharacters: number;
+  guestCharacters: number;
+  accountSaveSlots: number;
+  smokeTestCharacters: number;
+  recentGuestCharacters: AdminCharacterSummary[];
+  recentAccountCharacters: AdminCharacterSummary[];
+}
+
 export interface AdminCharacterSummary {
   saveSlot: string;
   characterName: string;
@@ -125,6 +135,20 @@ export interface AdminCharacterSummary {
   accountEmail?: string;
   hostedDomain?: string;
   updatedAt: number;
+}
+
+export interface TestDataReport {
+  smokeCharacters: number;
+  smokeFeedback: number;
+  smokeChatLogs: number;
+  smokeActionLogs: number;
+  smokeAccountSaveSlots: number;
+}
+
+export interface TestDataCleanupResult {
+  dryRun: boolean;
+  report: TestDataReport;
+  deleted?: TestDataReport;
 }
 
 export interface ChatLogInput {
@@ -164,15 +188,21 @@ export interface AdminActionLog {
 
 export interface TestFeedbackInput {
   testerName: string;
+  schoolName?: string;
   classGroup: string;
   playerName: string;
   saveSlot: string;
   accountId?: string;
   mapId: string;
+  currentZone?: string;
+  activeQuest?: string;
   chapterProgress: string;
+  feedbackCategory?: string;
+  deviceType?: string;
   difficulty: number;
   stuckPoint: string;
   suggestion: string;
+  contactAllowed?: boolean;
   userAgent?: string;
   submittedAt?: number;
 }
@@ -182,15 +212,21 @@ export type FeedbackStatus = "open" | "reviewing" | "fixed" | "deferred";
 export interface AdminTestFeedback {
   id: number;
   testerName: string;
+  schoolName: string;
   classGroup: string;
   playerName: string;
   saveSlot: string;
   accountEmail?: string;
   mapId: string;
+  currentZone: string;
+  activeQuest: string;
   chapterProgress: string;
+  feedbackCategory: string;
+  deviceType: string;
   difficulty: number;
   stuckPoint: string;
   suggestion: string;
+  contactAllowed: boolean;
   status: FeedbackStatus;
   adminNote: string;
   submittedAt: number;
@@ -279,15 +315,21 @@ interface AdminActionLogRow {
 interface AdminTestFeedbackRow {
   id: number;
   tester_name: string;
+  school_name: string;
   class_group: string;
   player_name: string;
   save_slot: string;
   account_email: string | null;
   map_id: string;
+  current_zone: string;
+  active_quest: string;
   chapter_progress: string;
+  feedback_category: string;
+  device_type: string;
   difficulty: number;
   stuck_point: string;
   suggestion: string;
+  contact_allowed: number;
   status: FeedbackStatus;
   admin_note: string;
   submitted_at: number;
@@ -465,6 +507,12 @@ function parseInteractedTargetIds(value: string | undefined) {
 
 addColumnIfMissing("admin_announcements", "category", "TEXT NOT NULL DEFAULT 'classroom'");
 addColumnIfMissing("admin_announcements", "expires_at", "INTEGER");
+addColumnIfMissing("test_feedback", "school_name", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("test_feedback", "current_zone", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("test_feedback", "active_quest", "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("test_feedback", "feedback_category", "TEXT NOT NULL DEFAULT 'other'");
+addColumnIfMissing("test_feedback", "device_type", "TEXT NOT NULL DEFAULT 'unknown'");
+addColumnIfMissing("test_feedback", "contact_allowed", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("test_feedback", "status", "TEXT NOT NULL DEFAULT 'open'");
 addColumnIfMissing("test_feedback", "admin_note", "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("test_feedback", "updated_at", "INTEGER NOT NULL DEFAULT 0");
@@ -853,6 +901,19 @@ export function getAdminSummary(): AdminSummary {
   };
 }
 
+function mapAdminCharacterSummaryRow(row: AdminCharacterSummaryRow): AdminCharacterSummary {
+  return {
+    saveSlot: row.save_slot,
+    characterName: row.character_name,
+    className: row.class_name,
+    level: row.level,
+    gold: row.gold,
+    accountEmail: row.account_email ?? undefined,
+    hostedDomain: row.hosted_domain ?? undefined,
+    updatedAt: row.updated_at
+  };
+}
+
 export function listAdminCharacters(limit = 200): AdminCharacterSummary[] {
   const safeLimit = Math.max(1, Math.min(limit, 1000));
   const rows = db
@@ -876,16 +937,99 @@ export function listAdminCharacters(limit = 200): AdminCharacterSummary[] {
     )
     .all(safeLimit) as unknown as AdminCharacterSummaryRow[];
 
-  return rows.map((row) => ({
-    saveSlot: row.save_slot,
-    characterName: row.character_name,
-    className: row.class_name,
-    level: row.level,
-    gold: row.gold,
-    accountEmail: row.account_email ?? undefined,
-    hostedDomain: row.hosted_domain ?? undefined,
-    updatedAt: row.updated_at
-  }));
+  return rows.map(mapAdminCharacterSummaryRow);
+}
+
+function listAdminCharactersByAccountBinding(bound: boolean, limit = 12): AdminCharacterSummary[] {
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          characters.save_slot,
+          characters.name AS character_name,
+          characters.class_name,
+          characters.level,
+          characters.gold,
+          accounts.email AS account_email,
+          accounts.hosted_domain,
+          characters.updated_at
+        FROM characters
+        LEFT JOIN account_save_slots ON account_save_slots.save_slot = characters.save_slot
+        LEFT JOIN accounts ON accounts.account_id = account_save_slots.account_id
+        WHERE account_save_slots.account_id IS ${bound ? "NOT NULL" : "NULL"}
+        ORDER BY characters.updated_at DESC
+        LIMIT ?
+      `
+    )
+    .all(Math.max(1, Math.min(limit, 100))) as unknown as AdminCharacterSummaryRow[];
+
+  return rows.map(mapAdminCharacterSummaryRow);
+}
+
+export function getAdminSaveAudit(): AdminSaveAudit {
+  return {
+    totalCharacters: getCount("SELECT COUNT(*) AS count FROM characters"),
+    accountBoundCharacters: getCount(
+      "SELECT COUNT(*) AS count FROM characters INNER JOIN account_save_slots ON account_save_slots.save_slot = characters.save_slot"
+    ),
+    guestCharacters: getCount(
+      "SELECT COUNT(*) AS count FROM characters LEFT JOIN account_save_slots ON account_save_slots.save_slot = characters.save_slot WHERE account_save_slots.account_id IS NULL"
+    ),
+    accountSaveSlots: getCount("SELECT COUNT(*) AS count FROM account_save_slots"),
+    smokeTestCharacters: getCount("SELECT COUNT(*) AS count FROM characters WHERE save_slot LIKE '%smoke%'"),
+    recentGuestCharacters: listAdminCharactersByAccountBinding(false, 8),
+    recentAccountCharacters: listAdminCharactersByAccountBinding(true, 8)
+  };
+}
+
+export function getTestDataReport(): TestDataReport {
+  return {
+    smokeCharacters: getCount("SELECT COUNT(*) AS count FROM characters WHERE save_slot LIKE '%smoke%'"),
+    smokeFeedback: getCount(
+      "SELECT COUNT(*) AS count FROM test_feedback WHERE save_slot LIKE '%smoke%' OR tester_name LIKE 'Smoke%' OR class_group LIKE 'Smoke%'"
+    ),
+    smokeChatLogs: getCount("SELECT COUNT(*) AS count FROM chat_logs WHERE save_slot LIKE '%smoke%' OR player_name LIKE 'Smoke%'"),
+    smokeActionLogs: getCount("SELECT COUNT(*) AS count FROM admin_action_logs WHERE details LIKE '%Smoke%'"),
+    smokeAccountSaveSlots: getCount("SELECT COUNT(*) AS count FROM account_save_slots WHERE save_slot LIKE '%smoke%'")
+  };
+}
+
+export function cleanupSmokeTestData(dryRun = true): TestDataCleanupResult {
+  const report = getTestDataReport();
+  if (dryRun) {
+    return { dryRun: true, report };
+  }
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const deleted: TestDataReport = {
+      smokeCharacters: 0,
+      smokeFeedback: 0,
+      smokeChatLogs: 0,
+      smokeActionLogs: 0,
+      smokeAccountSaveSlots: 0
+    };
+    const toDeletedCount = (changes: number | bigint) => Number(changes);
+    deleted.smokeFeedback = toDeletedCount(
+      db
+        .prepare("DELETE FROM test_feedback WHERE save_slot LIKE '%smoke%' OR tester_name LIKE 'Smoke%' OR class_group LIKE 'Smoke%'")
+        .run().changes
+    );
+    deleted.smokeChatLogs = toDeletedCount(
+      db.prepare("DELETE FROM chat_logs WHERE save_slot LIKE '%smoke%' OR player_name LIKE 'Smoke%'").run().changes
+    );
+    deleted.smokeActionLogs = toDeletedCount(db.prepare("DELETE FROM admin_action_logs WHERE details LIKE '%Smoke%'").run().changes);
+    deleted.smokeAccountSaveSlots = toDeletedCount(db.prepare("DELETE FROM account_save_slots WHERE save_slot LIKE '%smoke%'").run().changes);
+    db.prepare("DELETE FROM inventory_items WHERE save_slot LIKE '%smoke%'").run();
+    db.prepare("DELETE FROM equipment_items WHERE save_slot LIKE '%smoke%'").run();
+    db.prepare("DELETE FROM quest_states WHERE save_slot LIKE '%smoke%'").run();
+    deleted.smokeCharacters = toDeletedCount(db.prepare("DELETE FROM characters WHERE save_slot LIKE '%smoke%'").run().changes);
+    db.exec("COMMIT");
+    return { dryRun: false, report, deleted };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function logChatMessage(input: ChatLogInput) {
@@ -972,33 +1116,45 @@ export function saveTestFeedback(input: TestFeedbackInput) {
       `
         INSERT INTO test_feedback (
           tester_name,
+          school_name,
           class_group,
           player_name,
           save_slot,
           account_id,
           map_id,
+          current_zone,
+          active_quest,
           chapter_progress,
+          feedback_category,
+          device_type,
           difficulty,
           stuck_point,
           suggestion,
+          contact_allowed,
           user_agent,
           submitted_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     )
     .run(
       input.testerName,
+      input.schoolName ?? "",
       input.classGroup,
       input.playerName,
       input.saveSlot,
       input.accountId ?? null,
       input.mapId,
+      input.currentZone ?? "",
+      input.activeQuest ?? "",
       input.chapterProgress,
+      input.feedbackCategory ?? "other",
+      input.deviceType ?? "unknown",
       input.difficulty,
       input.stuckPoint,
       input.suggestion,
+      input.contactAllowed ? 1 : 0,
       input.userAgent ?? null,
       submittedAt,
       submittedAt
@@ -1018,15 +1174,21 @@ export function listAdminTestFeedback(limit = 200): AdminTestFeedback[] {
         SELECT
           test_feedback.id,
           test_feedback.tester_name,
+          test_feedback.school_name,
           test_feedback.class_group,
           test_feedback.player_name,
           test_feedback.save_slot,
           accounts.email AS account_email,
           test_feedback.map_id,
+          test_feedback.current_zone,
+          test_feedback.active_quest,
           test_feedback.chapter_progress,
+          test_feedback.feedback_category,
+          test_feedback.device_type,
           test_feedback.difficulty,
           test_feedback.stuck_point,
           test_feedback.suggestion,
+          test_feedback.contact_allowed,
           test_feedback.status,
           test_feedback.admin_note,
           test_feedback.submitted_at,
@@ -1042,15 +1204,21 @@ export function listAdminTestFeedback(limit = 200): AdminTestFeedback[] {
   return rows.map((row) => ({
     id: row.id,
     testerName: row.tester_name,
+    schoolName: row.school_name,
     classGroup: row.class_group,
     playerName: row.player_name,
     saveSlot: row.save_slot,
     accountEmail: row.account_email ?? undefined,
     mapId: row.map_id,
+    currentZone: row.current_zone,
+    activeQuest: row.active_quest,
     chapterProgress: row.chapter_progress,
+    feedbackCategory: row.feedback_category,
+    deviceType: row.device_type,
     difficulty: row.difficulty,
     stuckPoint: row.stuck_point,
     suggestion: row.suggestion,
+    contactAllowed: row.contact_allowed === 1,
     status: row.status,
     adminNote: row.admin_note,
     submittedAt: row.submitted_at,

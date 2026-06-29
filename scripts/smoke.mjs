@@ -58,20 +58,34 @@ const feedbackResponse = await assertFetch("/feedback", 200, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     testerName: "Smoke Tester",
+    schoolName: "Smoke School",
     classGroup: "Smoke Class",
     playerName: "Smoke Hero",
     saveSlot: "smoke-script-slot",
     mapId: "fog-harbor-test",
+    currentZone: "Smoke Zone",
+    activeQuest: "Smoke Quest",
     chapterProgress: "Smoke progress",
+    feedbackCategory: "bug",
+    deviceType: "desktop",
     difficulty: 3,
     stuckPoint: "Smoke stuck point",
-    suggestion: "Smoke suggestion"
+    suggestion: "Smoke suggestion",
+    contactAllowed: true
   })
 });
 const feedbackId = JSON.parse(feedbackResponse).id;
 if (adminToken) {
-  await assertFetch(`/admin/summary?token=${encodeURIComponent(adminToken)}`, 200);
-  await assertFetch(`/admin/system?token=${encodeURIComponent(adminToken)}`, 200);
+  const summaryResponse = await assertFetch(`/admin/summary?token=${encodeURIComponent(adminToken)}`, 200);
+  const summary = JSON.parse(summaryResponse);
+  if (!summary.betaFeedback || summary.betaFeedback.total < 1 || !Array.isArray(summary.betaFeedback.byCategory)) {
+    throw new Error(`admin summary missing beta feedback metrics: ${summaryResponse}`);
+  }
+  const systemResponse = await assertFetch(`/admin/system?token=${encodeURIComponent(adminToken)}`, 200);
+  const systemStatus = JSON.parse(systemResponse);
+  if (typeof systemStatus.googleClientConfigured !== "boolean" || typeof systemStatus.authCorsOrigin !== "string") {
+    throw new Error(`admin system missing auth readiness fields: ${systemResponse}`);
+  }
   await assertFetch(`/admin/characters?token=${encodeURIComponent(adminToken)}`, 200);
   await assertFetch(`/admin/characters.csv?token=${encodeURIComponent(adminToken)}`, 200);
   await assertFetch(`/admin/online?token=${encodeURIComponent(adminToken)}`, 200);
@@ -91,6 +105,26 @@ if (adminToken) {
   await assertFetch(`/admin/backups?token=${encodeURIComponent(adminToken)}`, 200);
   await assertFetch(`/admin/backups?token=${encodeURIComponent(adminToken)}`, 200, {
     method: "POST"
+  });
+  await assertFetch(`/admin/save-audit?token=${encodeURIComponent(adminToken)}`, 200);
+  const testDataResponse = await assertFetch(`/admin/test-data?token=${encodeURIComponent(adminToken)}`, 200);
+  const testData = JSON.parse(testDataResponse);
+  if (!testData.report || typeof testData.report.smokeFeedback !== "number") {
+    throw new Error(`admin test data report missing smoke metrics: ${testDataResponse}`);
+  }
+  const dryRunCleanupResponse = await assertFetch(`/admin/test-data/cleanup?token=${encodeURIComponent(adminToken)}`, 200, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dryRun: true })
+  });
+  const dryRunCleanup = JSON.parse(dryRunCleanupResponse);
+  if (!dryRunCleanup.dryRun || !dryRunCleanup.report || typeof dryRunCleanup.report.smokeCharacters !== "number") {
+    throw new Error(`admin test data dry-run cleanup returned invalid payload: ${dryRunCleanupResponse}`);
+  }
+  await assertFetch(`/admin/test-data/cleanup?token=${encodeURIComponent(adminToken)}`, 400, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dryRun: false, confirmText: "WRONG" })
   });
   await assertFetch(`/admin/classroom?token=${encodeURIComponent(adminToken)}`, 200);
   await assertFetch(`/admin/classroom?token=${encodeURIComponent(adminToken)}`, 200, {

@@ -58,7 +58,10 @@ export const monsterTextureKeys: Record<MonsterKind, string> = {
   "coral-warden": "monster_coral_warden",
   "archive-drifter": "monster_archive_drifter",
   "ink-sprite": "monster_ink_sprite",
-  "archive-guardian": "monster_archive_guardian"
+  "archive-guardian": "monster_archive_guardian",
+  "star-moth": "monster_star_moth",
+  "lens-sentinel": "monster_lens_sentinel",
+  "astral-keeper": "monster_astral_keeper"
 };
 
 export const monsterAnimationKeys: Record<MonsterKind, string> = {
@@ -73,7 +76,10 @@ export const monsterAnimationKeys: Record<MonsterKind, string> = {
   "coral-warden": "anim_monster_coral_warden_idle",
   "archive-drifter": "anim_monster_archive_drifter_idle",
   "ink-sprite": "anim_monster_ink_sprite_idle",
-  "archive-guardian": "anim_monster_archive_guardian_idle"
+  "archive-guardian": "anim_monster_archive_guardian_idle",
+  "star-moth": "anim_monster_star_moth_idle",
+  "lens-sentinel": "anim_monster_lens_sentinel_idle",
+  "astral-keeper": "anim_monster_astral_keeper_idle"
 };
 
 export const platformTextureKey = "tile_harbor_platform";
@@ -109,6 +115,12 @@ export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
     { key: "bg_mist_breakwater_far", y: 250, height: 230, scrollFactor: 0.24, alpha: 0.72, depth: -55 },
     { key: "bg_fog_harbor_buildings_back", y: 340, height: 250, scrollFactor: 0.42, alpha: 0.62, depth: -50 },
     { key: "bg_fog_harbor_buildings_mid", y: 426, height: 260, scrollFactor: 0.7, alpha: 0.58, depth: -45 }
+  ],
+  "starlit-observatory": [
+    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.12, alpha: 0.72, depth: -60 },
+    { key: "bg_fog_harbor_far", y: 250, height: 230, scrollFactor: 0.22, alpha: 0.68, depth: -55 },
+    { key: "bg_mist_breakwater_harbor_back", y: 340, height: 250, scrollFactor: 0.4, alpha: 0.62, depth: -50 },
+    { key: "bg_fog_harbor_buildings_mid", y: 426, height: 260, scrollFactor: 0.68, alpha: 0.56, depth: -45 }
   ]
 };
 

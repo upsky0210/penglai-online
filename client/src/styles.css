@@ -90,6 +90,15 @@ canvas {
   gap: 6px;
 }
 
+.feedback-form .feedback-inline {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.feedback-form .feedback-inline input {
+  width: auto;
+}
+
 .feedback-form label span,
 .feedback-form footer span {
   color: #d9ceb4;
@@ -267,7 +276,8 @@ canvas {
 }
 
 .admin-toolbar button:disabled,
-.admin-section-head button:disabled {
+.admin-section-head button:disabled,
+.admin-actions button:disabled {
   cursor: wait;
   opacity: 0.55;
   box-shadow: none;
@@ -508,6 +518,50 @@ canvas {
   color: var(--muted);
 }
 
+.admin-danger-zone {
+  margin-bottom: 18px;
+  border-color: rgba(168, 54, 42, 0.28);
+}
+
+.admin-danger-zone .admin-section-head {
+  background: #fff8ef;
+}
+
+.admin-danger-zone .admin-list article:first-child {
+  border-left-color: var(--vermilion);
+  background: #fffaf1;
+}
+
+.admin-confirm-line {
+  display: grid;
+  grid-template-columns: 120px minmax(220px, 420px);
+  gap: 10px;
+  align-items: center;
+  padding: 0 16px 16px;
+}
+
+.admin-confirm-line span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-confirm-line input {
+  min-height: 40px;
+  border: 1px solid #c9cfca;
+  border-radius: 8px;
+  background: #fcfbf7;
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+}
+
+.admin-confirm-line input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(36, 92, 82, 0.12);
+  outline: none;
+}
+
 .admin-actions {
   display: flex;
   flex-wrap: wrap;
@@ -652,7 +706,8 @@ canvas {
   .admin-broadcast,
   .admin-metrics,
   .admin-grid,
-  .admin-filters {
+  .admin-filters,
+  .admin-confirm-line {
     grid-template-columns: 1fr;
   }
 }

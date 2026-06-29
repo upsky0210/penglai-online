@@ -43,15 +43,21 @@ interface AdminActionLog {
 interface TestFeedback {
   id: number;
   testerName: string;
+  schoolName: string;
   classGroup: string;
   playerName: string;
   saveSlot: string;
   accountEmail?: string;
   mapId: string;
+  currentZone: string;
+  activeQuest: string;
   chapterProgress: string;
+  feedbackCategory: string;
+  deviceType: string;
   difficulty: number;
   stuckPoint: string;
   suggestion: string;
+  contactAllowed: boolean;
   status: "open" | "reviewing" | "fixed" | "deferred";
   adminNote: string;
   submittedAt: number;
@@ -82,6 +88,9 @@ interface SystemStatus {
   mutedPlayers: number;
   adminApiConfigured: boolean;
   googleAuthConfigured: boolean;
+  googleClientConfigured: boolean;
+  googleHostedDomain: string;
+  authCorsOrigin: string;
 }
 
 interface BackupFile {
@@ -90,11 +99,55 @@ interface BackupFile {
   createdAt: number;
 }
 
+interface AdminSaveAudit {
+  totalCharacters: number;
+  accountBoundCharacters: number;
+  guestCharacters: number;
+  accountSaveSlots: number;
+  smokeTestCharacters: number;
+  recentGuestCharacters: AdminCharacter[];
+  recentAccountCharacters: AdminCharacter[];
+}
+
+interface TestDataReport {
+  smokeCharacters: number;
+  smokeFeedback: number;
+  smokeChatLogs: number;
+  smokeActionLogs: number;
+  smokeAccountSaveSlots: number;
+}
+
+interface TestDataCleanupResponse {
+  ok: boolean;
+  dryRun: boolean;
+  report: TestDataReport;
+  deleted?: TestDataReport;
+  backup?: BackupFile;
+}
+
 interface AdminSummary {
   accounts: number;
   characters: number;
   saveSlots: number;
   activeSessions: number;
+  betaFeedback?: {
+    total: number;
+    open: number;
+    averageDifficulty: number;
+    byClassGroup: Array<{ key: string; count: number }>;
+    byMap: Array<{ key: string; count: number }>;
+    byCategory: Array<{ key: string; count: number }>;
+    recentOpen: Array<{
+      id: number;
+      testerName: string;
+      classGroup: string;
+      mapId: string;
+      category: string;
+      difficulty: number;
+      stuckPoint: string;
+      submittedAt: number;
+    }>;
+  };
   recentCharacters: AdminCharacter[];
 }
 
@@ -127,6 +180,24 @@ const feedbackStatusLabels: Record<TestFeedback["status"], string> = {
   reviewing: "處理中",
   fixed: "已修正",
   deferred: "暫不處理"
+};
+
+const feedbackCategoryLabels: Record<string, string> = {
+  bug: "Bug / 錯誤",
+  balance: "難度平衡",
+  navigation: "任務 / 路線",
+  ui: "介面 / 文字",
+  performance: "卡頓 / 連線",
+  content: "新增內容",
+  other: "其他"
+};
+
+const feedbackDeviceLabels: Record<string, string> = {
+  desktop: "桌機",
+  laptop: "筆電",
+  tablet: "平板",
+  mobile: "手機",
+  unknown: "不確定"
 };
 
 export function mountAdminDashboard(root: HTMLElement) {
@@ -168,6 +239,20 @@ export function mountAdminDashboard(root: HTMLElement) {
           </div>
           <div class="admin-list" id="admin-backup-list"></div>
         </section>
+      </section>
+      <section class="admin-table-section admin-danger-zone" aria-label="測試資料清理">
+        <div class="admin-section-head">
+          <h2>Smoke 測試資料清理</h2>
+          <div class="admin-actions">
+            <button id="admin-test-data-dry-run" type="button">預覽清理範圍</button>
+            <button id="admin-test-data-cleanup" type="button">清理 Smoke 測試資料</button>
+          </div>
+        </div>
+        <div class="admin-list" id="admin-test-data-list"></div>
+        <label class="admin-confirm-line">
+          <span>確認文字</span>
+          <input id="admin-test-data-confirm" type="text" autocomplete="off" placeholder="DELETE_SMOKE_TEST_DATA" />
+        </label>
       </section>
       <section class="admin-broadcast" aria-label="公告廣播">
         <label>
@@ -274,6 +359,9 @@ export function mountAdminDashboard(root: HTMLElement) {
   const announcementDownloadButton = root.querySelector<HTMLButtonElement>("#admin-announcement-download")!;
   const feedbackDownloadButton = root.querySelector<HTMLButtonElement>("#admin-feedback-download")!;
   const backupButton = root.querySelector<HTMLButtonElement>("#admin-backup-create")!;
+  const testDataDryRunButton = root.querySelector<HTMLButtonElement>("#admin-test-data-dry-run")!;
+  const testDataCleanupButton = root.querySelector<HTMLButtonElement>("#admin-test-data-cleanup")!;
+  const testDataConfirmInput = root.querySelector<HTMLInputElement>("#admin-test-data-confirm")!;
   const broadcastButton = root.querySelector<HTMLButtonElement>("#admin-broadcast-send")!;
   const broadcastInput = root.querySelector<HTMLInputElement>("#admin-broadcast-text")!;
   const broadcastCategory = root.querySelector<HTMLSelectElement>("#admin-broadcast-category")!;
@@ -285,6 +373,7 @@ export function mountAdminDashboard(root: HTMLElement) {
   const rows = root.querySelector<HTMLTableSectionElement>("#admin-character-rows")!;
   const systemList = root.querySelector<HTMLElement>("#admin-system-list")!;
   const backupList = root.querySelector<HTMLElement>("#admin-backup-list")!;
+  const testDataList = root.querySelector<HTMLElement>("#admin-test-data-list")!;
   const onlineList = root.querySelector<HTMLElement>("#admin-online-list")!;
   const chatList = root.querySelector<HTMLElement>("#admin-chat-list")!;
   const actionList = root.querySelector<HTMLElement>("#admin-action-list")!;
@@ -300,6 +389,8 @@ export function mountAdminDashboard(root: HTMLElement) {
   let feedbackEntries: TestFeedback[] = [];
   let systemStatus: SystemStatus | undefined;
   let backups: BackupFile[] = [];
+  let saveAudit: AdminSaveAudit | undefined;
+  let testDataReport: TestDataReport | undefined;
   let classroomState: ClassroomState = {
     chatLocked: false,
     chatLockMessage: "課堂聊天已暫停，請聽老師說明。",
@@ -318,7 +409,10 @@ export function mountAdminDashboard(root: HTMLElement) {
       ["帳號", summary?.accounts ?? 0],
       ["角色", summary?.characters ?? 0],
       ["存檔槽", summary?.saveSlots ?? 0],
-      ["有效登入", summary?.activeSessions ?? 0]
+      ["有效登入", summary?.activeSessions ?? 0],
+      ["回饋總數", summary?.betaFeedback?.total ?? 0],
+      ["待處理回饋", summary?.betaFeedback?.open ?? 0],
+      ["平均難度", summary?.betaFeedback?.averageDifficulty ?? 0]
     ];
     metrics.innerHTML = values
       .map(([label, value]) => `<article><strong>${value}</strong><span>${label}</span></article>`)
@@ -338,6 +432,13 @@ export function mountAdminDashboard(root: HTMLElement) {
       ["聊天鎖定", systemStatus.chatLocked ? "已鎖定" : "開放"],
       ["靜音人數", String(systemStatus.mutedPlayers)],
       ["Google 登入", systemStatus.googleAuthConfigured ? "已設定" : "未設定"],
+      ["Google Client ID", systemStatus.googleClientConfigured ? "已設定" : "未設定"],
+      ["Google 網域限制", systemStatus.googleHostedDomain || "未限制"],
+      ["Auth CORS", systemStatus.authCorsOrigin || "*"],
+      ["帳號綁定角色", String(saveAudit?.accountBoundCharacters ?? 0)],
+      ["匿名測試角色", String(saveAudit?.guestCharacters ?? 0)],
+      ["Smoke 測試角色", String(testDataReport?.smokeCharacters ?? 0)],
+      ["Smoke 測試回饋", String(testDataReport?.smokeFeedback ?? 0)],
       ["資料庫", systemStatus.databasePath],
       ["備份目錄", systemStatus.backupDirectory]
     ];
@@ -367,6 +468,45 @@ export function mountAdminDashboard(root: HTMLElement) {
           `
         )
         .join("") || `<p>尚未建立資料庫備份。</p>`;
+  };
+
+  const renderTestDataReport = () => {
+    if (!testDataReport) {
+      testDataList.innerHTML = `<p>尚未讀取測試資料報表。</p>`;
+      return;
+    }
+
+    const total =
+      testDataReport.smokeCharacters +
+      testDataReport.smokeFeedback +
+      testDataReport.smokeChatLogs +
+      testDataReport.smokeActionLogs +
+      testDataReport.smokeAccountSaveSlots;
+    const items = [
+      ["Smoke 測試角色", testDataReport.smokeCharacters],
+      ["Smoke 測試回饋", testDataReport.smokeFeedback],
+      ["Smoke 聊天紀錄", testDataReport.smokeChatLogs],
+      ["Smoke 管理紀錄", testDataReport.smokeActionLogs],
+      ["Smoke 帳號存檔", testDataReport.smokeAccountSaveSlots]
+    ];
+
+    testDataList.innerHTML = `
+      <article>
+        <strong>${total > 0 ? "可清理測試資料" : "沒有 Smoke 測試資料"}</strong>
+        <span>${total} 筆</span>
+        <small>正式清理前會自動建立 SQLite 備份，且只處理 save slot 或測試名稱含 Smoke/smoke 的資料。</small>
+      </article>
+      ${items
+        .map(
+          ([label, value]) => `
+            <article>
+              <strong>${escapeHtml(String(label))}</strong>
+              <span>${value} 筆</span>
+            </article>
+          `
+        )
+        .join("")}
+    `;
   };
 
   const renderOnlinePlayers = () => {
@@ -439,7 +579,8 @@ export function mountAdminDashboard(root: HTMLElement) {
         .map(
           (entry) => `
             <article>
-              <strong>${escapeHtml(entry.testerName)} · ${escapeHtml(entry.classGroup)} · 難度 ${entry.difficulty}/5 · ${feedbackStatusLabels[entry.status]}</strong>
+              <strong>${escapeHtml(entry.testerName)} · ${escapeHtml(entry.schoolName || "未填學校")} · ${escapeHtml(entry.classGroup)} · 難度 ${entry.difficulty}/5 · ${feedbackStatusLabels[entry.status]}</strong>
+              <span>${escapeHtml(feedbackCategoryLabels[entry.feedbackCategory] ?? entry.feedbackCategory)} · ${escapeHtml(feedbackDeviceLabels[entry.deviceType] ?? entry.deviceType)} · ${entry.contactAllowed ? "可追問" : "不追問"}</span>
               <span>卡關點：${escapeHtml(entry.stuckPoint)}</span>
               <span>建議：${escapeHtml(entry.suggestion)}</span>
               <div class="admin-feedback-actions" data-feedback-id="${entry.id}">
@@ -451,7 +592,7 @@ export function mountAdminDashboard(root: HTMLElement) {
                 <input data-feedback-note type="text" maxlength="240" value="${escapeHtml(entry.adminNote)}" placeholder="處理備註" />
                 <button type="button" data-feedback-update>更新</button>
               </div>
-              <small>${escapeHtml(entry.playerName)} · ${escapeHtml(entry.chapterProgress)} · ${escapeHtml(entry.accountEmail ?? formatSaveSlot(entry.saveSlot))} · ${new Date(entry.submittedAt).toLocaleString("zh-TW")}</small>
+              <small>${escapeHtml(entry.playerName)} · ${escapeHtml(entry.mapId)} / ${escapeHtml(entry.currentZone || "未記錄區域")} · ${escapeHtml(entry.activeQuest || entry.chapterProgress)} · ${escapeHtml(entry.accountEmail ?? formatSaveSlot(entry.saveSlot))} · ${new Date(entry.submittedAt).toLocaleString("zh-TW")}</small>
             </article>
           `
         )
@@ -526,7 +667,9 @@ export function mountAdminDashboard(root: HTMLElement) {
         feedbackPayload,
         classroomPayload,
         systemPayload,
-        backupPayload
+        backupPayload,
+        saveAuditPayload,
+        testDataPayload
       ] = await Promise.all([
         fetchJson<AdminSummary>("/admin/summary"),
         fetchJson<{ characters: AdminCharacter[] }>("/admin/characters?limit=500"),
@@ -537,7 +680,9 @@ export function mountAdminDashboard(root: HTMLElement) {
         fetchJson<{ feedback: TestFeedback[] }>("/admin/feedback?limit=80"),
         fetchJson<ClassroomState>("/admin/classroom"),
         fetchJson<SystemStatus>("/admin/system"),
-        fetchJson<{ backups: BackupFile[] }>("/admin/backups")
+        fetchJson<{ backups: BackupFile[] }>("/admin/backups"),
+        fetchJson<AdminSaveAudit>("/admin/save-audit"),
+        fetchJson<{ report: TestDataReport }>("/admin/test-data")
       ]);
       characters = characterPayload.characters;
       onlinePlayers = onlinePayload.onlinePlayers;
@@ -548,11 +693,14 @@ export function mountAdminDashboard(root: HTMLElement) {
       classroomState = classroomPayload;
       systemStatus = systemPayload;
       backups = backupPayload.backups;
+      saveAudit = saveAuditPayload;
+      testDataReport = testDataPayload.report;
       chatLockInput.value = classroomState.chatLockMessage;
       chatLockButton.textContent = classroomState.chatLocked ? "解除聊天鎖定" : "鎖定聊天";
       renderMetrics(summary);
       renderSystemStatus();
       renderBackups();
+      renderTestDataReport();
       renderOnlinePlayers();
       renderChatLogs();
       renderActionLogs();
@@ -571,8 +719,11 @@ export function mountAdminDashboard(root: HTMLElement) {
       feedbackEntries = [];
       systemStatus = undefined;
       backups = [];
+      saveAudit = undefined;
+      testDataReport = undefined;
       renderSystemStatus();
       renderBackups();
+      renderTestDataReport();
       renderOnlinePlayers();
       renderChatLogs();
       renderActionLogs();
@@ -664,6 +815,49 @@ export function mountAdminDashboard(root: HTMLElement) {
     }
   };
 
+  const cleanupTestData = async (dryRun: boolean) => {
+    const confirmText = testDataConfirmInput.value.trim();
+    if (!dryRun && confirmText !== "DELETE_SMOKE_TEST_DATA") {
+      setStatus("請先輸入 DELETE_SMOKE_TEST_DATA 才能清理 Smoke 測試資料。", "error");
+      return;
+    }
+
+    if (!dryRun && !window.confirm("確定要清理 Smoke 測試資料嗎？系統會先建立備份，但這個操作仍會刪除測試資料。")) {
+      return;
+    }
+
+    testDataDryRunButton.disabled = true;
+    testDataCleanupButton.disabled = true;
+    try {
+      const response = await fetch(withToken("/admin/test-data/cleanup"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dryRun,
+          confirmText
+        })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = (await response.json()) as TestDataCleanupResponse;
+      testDataReport = payload.deleted ?? payload.report;
+      if (payload.backup) {
+        backups = [payload.backup, ...backups.filter((backup) => backup.fileName !== payload.backup?.fileName)];
+      }
+      renderTestDataReport();
+      renderBackups();
+      setStatus(dryRun ? "已完成 dry-run 預覽，尚未刪除任何資料。" : "Smoke 測試資料已清理，並已建立備份。", "ok");
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "測試資料清理失敗。", "error");
+    } finally {
+      testDataDryRunButton.disabled = false;
+      testDataCleanupButton.disabled = false;
+    }
+  };
+
   const moderatePlayer = async (playerId: string, action: string) => {
     try {
       const player = onlinePlayers.find((candidate) => candidate.playerId === playerId);
@@ -727,6 +921,8 @@ export function mountAdminDashboard(root: HTMLElement) {
   announcementDownloadButton.addEventListener("click", () => downloadCsv("/admin/announcements.csv"));
   feedbackDownloadButton.addEventListener("click", () => downloadCsv("/admin/feedback.csv"));
   backupButton.addEventListener("click", () => void createBackup());
+  testDataDryRunButton.addEventListener("click", () => void cleanupTestData(true));
+  testDataCleanupButton.addEventListener("click", () => void cleanupTestData(false));
   broadcastButton.addEventListener("click", () => void sendBroadcast());
   chatLockButton.addEventListener("click", () => void updateClassroomChatLock());
   onlineList.addEventListener("click", (event) => {
@@ -753,6 +949,7 @@ export function mountAdminDashboard(root: HTMLElement) {
   renderMetrics(undefined);
   renderSystemStatus();
   renderBackups();
+  renderTestDataReport();
   renderOnlinePlayers();
   renderChatLogs();
   renderActionLogs();
@@ -791,7 +988,8 @@ function formatAction(action: string) {
     mute_player: "靜音玩家",
     unmute_player: "解除靜音",
     kick_player: "踢出玩家",
-    database_backup: "建立資料庫備份"
+    database_backup: "建立資料庫備份",
+    cleanup_smoke_test_data: "清理 Smoke 測試資料"
   };
   return labels[action] ?? action;
 }

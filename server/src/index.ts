@@ -32,11 +32,14 @@ import { GoogleAuthError, GoogleAuthVerifier } from "./googleAuth.js";
 import {
   bindAccountSaveSlot,
   createAuthSession,
+  cleanupSmokeTestData,
   getAccountById,
+  getAdminSaveAudit,
   getAdminSummary,
   getAuthSession,
   getDatabasePath,
   getFirstSaveSlotForAccount,
+  getTestDataReport,
   listAdminActionLogs,
   listActiveAdminAnnouncements,
   listAdminAnnouncements,
@@ -109,7 +112,9 @@ const equipmentDropChances: Partial<Record<ItemId, number>> = {
   "reef-blade": 0.08,
   "coral-coat": 0.07,
   "archive-wand": 0.06,
-  "scholar-robe": 0.06
+  "scholar-robe": 0.06,
+  "star-sabre": 0.07,
+  "observer-cloak": 0.06
 };
 const equipmentDropMapRestrictions: Partial<Record<ItemId, MapId>> = {
   "harbor-dagger": "old-harbor-warehouse",
@@ -118,7 +123,9 @@ const equipmentDropMapRestrictions: Partial<Record<ItemId, MapId>> = {
   "reef-blade": "coral-tide-cavern",
   "coral-coat": "coral-tide-cavern",
   "archive-wand": "sunken-archive",
-  "scholar-robe": "sunken-archive"
+  "scholar-robe": "sunken-archive",
+  "star-sabre": "starlit-observatory",
+  "observer-cloak": "starlit-observatory"
 };
 const equipmentDropChanceMultiplier = Number.parseFloat(process.env.EQUIPMENT_DROP_CHANCE_MULTIPLIER ?? "1");
 const characterClasses = new Set<CharacterClass>(["swordsman", "talisman", "hunter"]);
@@ -382,6 +389,22 @@ function normalizeFeedbackStatus(value: unknown): FeedbackStatus {
   return status === "reviewing" || status === "fixed" || status === "deferred" ? status : "open";
 }
 
+function normalizeFeedbackCategory(value: unknown) {
+  const category = typeof value === "string" ? value.trim() : "";
+  return ["bug", "balance", "navigation", "ui", "performance", "content", "other"].includes(category)
+    ? category
+    : "other";
+}
+
+function normalizeDeviceType(value: unknown) {
+  const deviceType = typeof value === "string" ? value.trim() : "";
+  return ["desktop", "laptop", "tablet", "mobile", "unknown"].includes(deviceType) ? deviceType : "unknown";
+}
+
+function normalizeBoolean(value: unknown) {
+  return value === true || value === "true" || value === "1" || value === 1;
+}
+
 function normalizeChatText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 160) : "";
 }
@@ -485,6 +508,21 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
 
   if (url.pathname === "/admin/backups" && request.method === "POST") {
     handleAdminCreateBackup(response, url);
+    return;
+  }
+
+  if (url.pathname === "/admin/save-audit" && request.method === "GET") {
+    sendAdminSaveAudit(response, url);
+    return;
+  }
+
+  if (url.pathname === "/admin/test-data" && request.method === "GET") {
+    sendAdminTestDataReport(response, url);
+    return;
+  }
+
+  if (url.pathname === "/admin/test-data/cleanup" && request.method === "POST") {
+    await handleAdminTestDataCleanup(request, response, url);
     return;
   }
 
@@ -680,7 +718,51 @@ function sendAdminSummary(response: ServerResponse, url: URL) {
     return;
   }
 
-  sendJson(response, 200, getAdminSummary());
+  sendJson(response, 200, {
+    ...getAdminSummary(),
+    betaFeedback: createBetaFeedbackSummary()
+  });
+}
+
+function createBetaFeedbackSummary() {
+  const feedback = listAdminTestFeedback(1000);
+  const openItems = feedback.filter((entry) => entry.status === "open" || entry.status === "reviewing");
+  const averageDifficulty =
+    feedback.length > 0
+      ? Number((feedback.reduce((sum, entry) => sum + entry.difficulty, 0) / feedback.length).toFixed(2))
+      : 0;
+
+  return {
+    total: feedback.length,
+    open: openItems.length,
+    averageDifficulty,
+    byClassGroup: countFeedbackBy(feedback, (entry) => entry.classGroup || "未填班級"),
+    byMap: countFeedbackBy(feedback, (entry) => entry.mapId || "unknown"),
+    byCategory: countFeedbackBy(feedback, (entry) => entry.feedbackCategory || "other"),
+    recentOpen: openItems.slice(0, 5).map((entry) => ({
+      id: entry.id,
+      testerName: entry.testerName,
+      classGroup: entry.classGroup,
+      mapId: entry.mapId,
+      category: entry.feedbackCategory,
+      difficulty: entry.difficulty,
+      stuckPoint: entry.stuckPoint,
+      submittedAt: entry.submittedAt
+    }))
+  };
+}
+
+function countFeedbackBy(feedback: ReturnType<typeof listAdminTestFeedback>, getKey: (entry: ReturnType<typeof listAdminTestFeedback>[number]) => string) {
+  const counts = new Map<string, number>();
+  for (const entry of feedback) {
+    const key = getKey(entry);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key))
+    .slice(0, 12);
 }
 
 function getBackupFiles() {
@@ -743,7 +825,10 @@ function sendAdminSystem(response: ServerResponse, url: URL) {
     chatLocked: classroomChatLocked,
     mutedPlayers: mutedPlayers.size,
     adminApiConfigured: Boolean(adminToken),
-    googleAuthConfigured: googleAuth.isConfigured
+    googleAuthConfigured: googleAuth.isConfigured,
+    googleClientConfigured: Boolean(googleClientId),
+    googleHostedDomain: allowedGoogleHostedDomain,
+    authCorsOrigin
   });
 }
 
@@ -778,6 +863,65 @@ function handleAdminCreateBackup(response: ServerResponse, url: URL) {
     });
   } catch {
     sendJson(response, 500, { error: "backup_failed" });
+  }
+}
+
+function sendAdminSaveAudit(response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+
+  sendJson(response, 200, getAdminSaveAudit());
+}
+
+function sendAdminTestDataReport(response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+
+  sendJson(response, 200, {
+    report: getTestDataReport(),
+    cleanup: {
+      endpoint: "/admin/test-data/cleanup",
+      dryRunDefault: true,
+      requiredConfirmText: "DELETE_SMOKE_TEST_DATA"
+    }
+  });
+}
+
+async function handleAdminTestDataCleanup(request: IncomingMessage, response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const dryRun = body.dryRun !== false;
+    const confirmText = typeof body.confirmText === "string" ? body.confirmText : "";
+    if (!dryRun && confirmText !== "DELETE_SMOKE_TEST_DATA") {
+      sendJson(response, 400, { error: "confirmation_required", requiredConfirmText: "DELETE_SMOKE_TEST_DATA" });
+      return;
+    }
+
+    const backup = dryRun ? undefined : createSqliteBackup();
+    const result = cleanupSmokeTestData(dryRun);
+    if (!dryRun) {
+      logAdminAction({
+        action: "cleanup_smoke_test_data",
+        details: JSON.stringify({ backup, deleted: result.deleted })
+      });
+    }
+
+    sendJson(response, 200, {
+      ok: true,
+      backup,
+      ...result
+    });
+  } catch {
+    sendJson(response, 400, { error: "invalid_cleanup_request" });
   }
 }
 
@@ -991,6 +1135,7 @@ async function handleFeedbackSubmit(request: IncomingMessage, response: ServerRe
   try {
     const body = await readJsonBody(request);
     const testerName = normalizeFeedbackText(body.testerName, 40);
+    const schoolName = normalizeFeedbackText(body.schoolName, 60);
     const classGroup = normalizeFeedbackText(body.classGroup, 40);
     const stuckPoint = normalizeFeedbackText(body.stuckPoint, 160);
     const suggestion = normalizeFeedbackText(body.suggestion, 360);
@@ -1002,15 +1147,21 @@ async function handleFeedbackSubmit(request: IncomingMessage, response: ServerRe
     const session = getAuthSession(typeof body.sessionId === "string" ? body.sessionId : undefined);
     const saved = saveTestFeedback({
       testerName,
+      schoolName,
       classGroup,
       playerName: normalizeFeedbackText(body.playerName, 40) || "未命名角色",
       saveSlot: normalizeSaveSlot(typeof body.saveSlot === "string" ? body.saveSlot : undefined, "feedback-guest"),
       accountId: session?.accountId,
       mapId: normalizeFeedbackText(body.mapId, 40) || DEFAULT_GAME_MAP.id,
+      currentZone: normalizeFeedbackText(body.currentZone, 60),
+      activeQuest: normalizeFeedbackText(body.activeQuest, 80),
       chapterProgress: normalizeFeedbackText(body.chapterProgress, 120) || "未提供",
+      feedbackCategory: normalizeFeedbackCategory(body.feedbackCategory),
+      deviceType: normalizeDeviceType(body.deviceType),
       difficulty: normalizeDifficulty(body.difficulty),
       stuckPoint,
       suggestion,
+      contactAllowed: normalizeBoolean(body.contactAllowed),
       userAgent: normalizeFeedbackText(request.headers["user-agent"], 220)
     });
     sendJson(response, 200, { ok: true, id: saved.id, submittedAt: saved.submittedAt });
@@ -1042,15 +1193,21 @@ function sendAdminFeedbackCsv(response: ServerResponse, url: URL) {
     [
       "id",
       "tester_name",
+      "school_name",
       "class_group",
       "player_name",
       "save_slot",
       "account_email",
       "map_id",
+      "current_zone",
+      "active_quest",
       "chapter_progress",
+      "feedback_category",
+      "device_type",
       "difficulty",
       "stuck_point",
       "suggestion",
+      "contact_allowed",
       "status",
       "admin_note",
       "submitted_at",
@@ -1062,15 +1219,21 @@ function sendAdminFeedbackCsv(response: ServerResponse, url: URL) {
       [
         entry.id,
         entry.testerName,
+        entry.schoolName,
         entry.classGroup,
         entry.playerName,
         entry.saveSlot,
         entry.accountEmail,
         entry.mapId,
+        entry.currentZone,
+        entry.activeQuest,
         entry.chapterProgress,
+        entry.feedbackCategory,
+        entry.deviceType,
         entry.difficulty,
         entry.stuckPoint,
         entry.suggestion,
+        entry.contactAllowed ? "yes" : "no",
         entry.status,
         entry.adminNote,
         new Date(entry.submittedAt).toISOString(),
@@ -1756,7 +1919,13 @@ function createEquipmentDrops(mapId: MapId, x: number, y: number) {
     const adjustedChance = Math.min(1, chance * equipmentDropChanceMultiplier);
     if (Math.random() <= adjustedChance) {
       const offsetX =
-        itemId === "training-sword" || itemId === "harbor-dagger" || itemId === "reef-blade" || itemId === "archive-wand" ? -28 : 56;
+        itemId === "training-sword" ||
+        itemId === "harbor-dagger" ||
+        itemId === "reef-blade" ||
+        itemId === "archive-wand" ||
+        itemId === "star-sabre"
+          ? -28
+          : 56;
       createItemDrop(itemId, 1, mapId, x + offsetX, y);
     }
   }
@@ -1818,6 +1987,20 @@ function createMonsterDrops(monster: MonsterSnapshot) {
   if (monster.kind === "archive-guardian") {
     createItemDrop("archive-seal", 1, monster.mapId, monster.x + 32, monster.y);
     createItemDrop("ink-core", 1, monster.mapId, monster.x - 28, monster.y);
+    createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x + 68, monster.y);
+  }
+
+  if (monster.kind === "star-moth") {
+    createItemDrop("star-dust", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "lens-sentinel") {
+    createItemDrop("lens-core", 1, monster.mapId, monster.x + 28, monster.y);
+  }
+
+  if (monster.kind === "astral-keeper") {
+    createItemDrop("astral-seal", 1, monster.mapId, monster.x + 32, monster.y);
+    createItemDrop("lens-core", 1, monster.mapId, monster.x - 28, monster.y);
     createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x + 68, monster.y);
   }
 
