@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 dist/
 build/
 .next/
@@ -20,8 +20,10 @@ Thumbs.db
 .npm-cache/
 *.log
 
-.npm-cache/
-*.log
+# Runtime SQLite database + transient WAL/SHM journals (never commit; may contain student data)
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
 
-.npm-cache/
-*.log
+# Local database backups (keep on disk, keep out of version control)
+server/backups/*.sqlite
