@@ -67,6 +67,7 @@ type KeyName =
   | "y"
   | "t"
   | "u"
+  | "x"
   | "enter"
   | "one"
   | "two"
@@ -292,6 +293,7 @@ export class GameScene extends Phaser.Scene {
       y: Phaser.Input.Keyboard.KeyCodes.Y,
       t: Phaser.Input.Keyboard.KeyCodes.T,
       u: Phaser.Input.Keyboard.KeyCodes.U,
+      x: Phaser.Input.Keyboard.KeyCodes.X,
       enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
       one: Phaser.Input.Keyboard.KeyCodes.ONE,
       two: Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -1101,6 +1103,7 @@ export class GameScene extends Phaser.Scene {
     const createNewSave = Phaser.Input.Keyboard.JustDown(this.keys.r);
     const loadPreviousSave = Phaser.Input.Keyboard.JustDown(this.keys.l);
     const copySaveSlot = Phaser.Input.Keyboard.JustDown(this.keys.y);
+    const importSaveSlot = Phaser.Input.Keyboard.JustDown(this.keys.x);
     const toggleFeedback = Phaser.Input.Keyboard.JustDown(this.keys.t);
     const returnSafe = Phaser.Input.Keyboard.JustDown(this.keys.h);
     const logoutAuth = Phaser.Input.Keyboard.JustDown(this.keys.g);
@@ -1182,6 +1185,11 @@ export class GameScene extends Phaser.Scene {
 
     if (copySaveSlot && this.savePanelVisible) {
       void this.copyCurrentSaveSlot();
+    }
+
+    if (importSaveSlot && this.savePanelVisible) {
+      this.importSaveSlotFromCode();
+      return;
     }
 
     if (toggleFeedback) {
@@ -2846,6 +2854,39 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private normalizeSaveSlotCode(raw: string) {
+    // Match the server's normalizeSaveSlot rules so an imported code is used verbatim.
+    const normalized = raw.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    return normalized.length >= 8 ? normalized : "";
+  }
+
+  private importSaveSlotFromCode() {
+    const raw = window.prompt(
+      "貼上先前用「Y 複製」取得的存檔代碼，即可在這個瀏覽器或裝置還原存檔：",
+      ""
+    );
+    if (raw === null) {
+      return;
+    }
+
+    const code = this.normalizeSaveSlotCode(raw);
+    if (!code) {
+      this.showSaveMessage("存檔代碼格式不正確（需 8 碼以上英數字或 - _）。");
+      return;
+    }
+
+    const current = this.currentSaveSlot || this.getSaveSlot();
+    if (code === current) {
+      this.showSaveMessage("這已經是目前使用中的存檔。");
+      return;
+    }
+
+    this.setSaveSlot(code, true);
+    this.loadCharacterDraft();
+    this.updateTitleScreen();
+    this.restartForSaveSlot(`已匯入存檔：${this.formatSaveSlot(code)}。`);
+  }
+
   private updateSavePanel() {
     if (!this.savePanel) {
       return;
@@ -2877,8 +2918,8 @@ export class GameScene extends Phaser.Scene {
         accountHint,
         ...accountSlots,
         "",
-        "P 關閉 | R 新角色",
-        "L 上一個 | Y 複製 | G 登出"
+        "P 關閉 | R 新角色 | L 上一個",
+        "Y 複製存檔碼 | X 匯入存檔碼 | G 登出"
       ].join("\n")
     );
   }
