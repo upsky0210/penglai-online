@@ -1056,6 +1056,41 @@ export class GameScene extends Phaser.Scene {
     this.addPlayer();
     this.rebuildMap(this.currentMap);
     this.connect();
+    this.maybeShowFirstRunSaveReminder();
+  }
+
+  private maybeShowFirstRunSaveReminder() {
+    // Logged-in accounts persist server-side, so only anonymous players need the nudge.
+    if (this.authSessionId) {
+      return;
+    }
+
+    let alreadySeen = false;
+    try {
+      alreadySeen = window.localStorage.getItem(clientStorageKeys.saveReminderSeen) === "1";
+    } catch {
+      // Storage blocked means the save is even more fragile, so keep reminding.
+    }
+    if (alreadySeen) {
+      return;
+    }
+
+    this.time.delayedCall(1600, () => {
+      // The player may have logged in during the delay.
+      if (this.authSessionId) {
+        return;
+      }
+
+      this.showDialogue(
+        "提醒：匿名存檔只存在這個瀏覽器。請按 P → Y 複製存檔碼備份，或登入 Google 帳號跨裝置保存。"
+      );
+
+      try {
+        window.localStorage.setItem(clientStorageKeys.saveReminderSeen, "1");
+      } catch {
+        // Cannot persist the flag; the reminder may reappear next session.
+      }
+    });
   }
 
   update() {

@@ -2,7 +2,8 @@ export const clientStorageKeys = {
   saveSlot: "penglai-save-slot",
   previousSaveSlot: "penglai-previous-save-slot",
   characterDrafts: "penglai-character-drafts",
-  authSession: "penglai-auth-session"
+  authSession: "penglai-auth-session",
+  saveReminderSeen: "penglai-save-reminder-seen"
 } as const;
 
 export const characterNamePresets = ["霧港旅人", "蓬萊學徒", "海線少年", "山城少女"];
