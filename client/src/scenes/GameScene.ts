@@ -68,6 +68,7 @@ type KeyName =
   | "t"
   | "u"
   | "x"
+  | "z"
   | "enter"
   | "one"
   | "two"
@@ -201,6 +202,7 @@ export class GameScene extends Phaser.Scene {
   private savePanelVisible = false;
   private settingsPanelVisible = false;
   private nearbyNpcId = "";
+  private returnSafeArmedAt = 0;
   private nearbyInteractableId = "";
   private nearbyDropId = "";
   private nearbyPortalId = "";
@@ -294,6 +296,7 @@ export class GameScene extends Phaser.Scene {
       t: Phaser.Input.Keyboard.KeyCodes.T,
       u: Phaser.Input.Keyboard.KeyCodes.U,
       x: Phaser.Input.Keyboard.KeyCodes.X,
+      z: Phaser.Input.Keyboard.KeyCodes.Z,
       enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
       one: Phaser.Input.Keyboard.KeyCodes.ONE,
       two: Phaser.Input.Keyboard.KeyCodes.TWO,
@@ -474,10 +477,12 @@ export class GameScene extends Phaser.Scene {
     );
     this.titleAuthText?.setText(
       this.authSessionId
-        ? `模式：學校 Google 帳號（${this.authAccountLabel || "已登入"}），存檔會綁定帳號。`
+        ? `已登入：學校 Google 帳號（${this.authAccountLabel || "已登入"}），存檔會綁定帳號。`
         : googleClientId
-          ? "模式：匿名測試；可使用學校 Google 帳號登入後綁定存檔。"
-          : "模式：匿名測試；Google 登入尚未設定，仍可使用本機存檔。"
+          ? "登入：點下方的 Google 按鈕，用學校帳號登入後綁定存檔。"
+          : authAllowMock
+            ? "登入（測試）：點下方「測試登入」輸入 Email 即可體驗帳號存檔。"
+            : "登入尚未開放，目前使用本機存檔。請按 P → Y 複製存檔碼備份。"
     );
   }
 
@@ -1177,7 +1182,7 @@ export class GameScene extends Phaser.Scene {
     const copySaveSlot = Phaser.Input.Keyboard.JustDown(this.keys.y);
     const importSaveSlot = Phaser.Input.Keyboard.JustDown(this.keys.x);
     const toggleFeedback = Phaser.Input.Keyboard.JustDown(this.keys.t);
-    const returnSafe = Phaser.Input.Keyboard.JustDown(this.keys.h);
+    const returnSafe = Phaser.Input.Keyboard.JustDown(this.keys.z);
     const logoutAuth = Phaser.Input.Keyboard.JustDown(this.keys.g);
     const toggleAnnouncements = Phaser.Input.Keyboard.JustDown(this.keys.u);
     const usePotion = Phaser.Input.Keyboard.JustDown(this.keys.one);
@@ -1270,7 +1275,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (returnSafe) {
-      this.sendReturnSafe();
+      this.confirmReturnSafe();
       return;
     }
 
@@ -2181,18 +2186,21 @@ export class GameScene extends Phaser.Scene {
 
   private addNpcs() {
     for (const npc of this.currentMap.npcs) {
-      this.add.ellipse(npc.x, npc.y - 2, 30, 10, ColorHex.shadow, 0.4);
-      this.add.rectangle(npc.x, npc.y - 24, 24, 44, ColorHex.teal);
-      this.add.rectangle(npc.x, npc.y - 24, 24, 44, 0x000000, 0).setStrokeStyle(1, ColorHex.gold, 0.4);
-      this.add.rectangle(npc.x, npc.y - 50, 34, 10, ColorHex.gold);
-      this.add.circle(npc.x, npc.y - 54, 10, 0xf2c078);
-      this.add.text(npc.x - 42, npc.y - 86, npc.name, {
-        fontFamily: uiFont,
-        fontSize: "12px",
-        color: ColorText.gold,
-        backgroundColor: "#10271fcc",
-        padding: { x: 6, y: 3 }
-      });
+      // Keep NPC body + nameplate above map background/foreground art so labels are never covered.
+      this.add.ellipse(npc.x, npc.y - 2, 30, 10, ColorHex.shadow, 0.4).setDepth(28);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, ColorHex.teal).setDepth(30);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, 0x000000, 0).setStrokeStyle(1, ColorHex.gold, 0.4).setDepth(30);
+      this.add.rectangle(npc.x, npc.y - 50, 34, 10, ColorHex.gold).setDepth(30);
+      this.add.circle(npc.x, npc.y - 54, 10, 0xf2c078).setDepth(30);
+      this.add
+        .text(npc.x - 42, npc.y - 86, npc.name, {
+          fontFamily: uiFont,
+          fontSize: "12px",
+          color: ColorText.gold,
+          backgroundColor: "#10271f",
+          padding: { x: 6, y: 3 }
+        })
+        .setDepth(46);
     }
   }
 
@@ -2326,7 +2334,7 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     this.add
-      .text(324, 18, "A/D 移動  W 跳躍  K 攻擊  J 技能  E 對話/互動  自動拾取  I 背包  Q 任務  C 角色  H 回安全區", {
+      .text(324, 18, "A/D 移動  W 跳躍  K 攻擊  J 技能  E 對話/互動  自動拾取\nI 背包  Q 任務  C 角色  P 存檔/帳號  Z 回安全區(連按兩下)", {
         fontFamily: uiFont,
         fontSize: "12px",
         color: ColorText.riceWhite,
@@ -2571,7 +2579,7 @@ export class GameScene extends Phaser.Scene {
 
       if (message.type === "map:change" && message.playerId === this.playerId) {
         this.rebuildMap(message.map, message.x, message.y);
-        this.showToast(`進入 ${message.map.name}`);
+        this.showToast(`進入 ${message.map.name}（進度已自動存檔）`);
         return;
       }
 
@@ -3397,6 +3405,19 @@ export class GameScene extends Phaser.Scene {
         portalId
       })
     );
+  }
+
+  private confirmReturnSafe() {
+    const now = this.time.now;
+    // Require a second press within the window so a stray key never teleports mid-combat.
+    if (now - this.returnSafeArmedAt > 1200) {
+      this.returnSafeArmedAt = now;
+      this.showToast("再按一次 Z 確認回安全區。");
+      return;
+    }
+
+    this.returnSafeArmedAt = 0;
+    this.sendReturnSafe();
   }
 
   private sendReturnSafe() {
