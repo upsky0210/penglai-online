@@ -99,8 +99,14 @@ let classroomChatLockMessage = "課堂聊天已暫停，請聽老師說明。";
 
 const baseAttack = 12;
 const baseDefense = 0;
+const attackPerLevel = 2;
 const contactDamage = 12;
 const contactDamageCooldownMs = 850;
+// Monster aggro: within this range a monster chases the nearest player instead of patrolling.
+const monsterAggroRangeX = 240;
+const monsterAggroRangeY = 84;
+const monsterChaseSpeedMultiplier = 1.7;
+const monsterChaseLeash = 140;
 const playerRespawnDelayMs = 1500;
 const playerRespawnInvulnerableMs = 1200;
 const itemPickupRange = 72;
@@ -1465,8 +1471,18 @@ function getDefenseBonus(playerId: string) {
   }, 0);
 }
 
+function getLevelAttackBonus(playerId: string, level?: number) {
+  const effectiveLevel = level ?? players.get(playerId)?.level ?? 1;
+  return Math.max(0, (effectiveLevel - 1) * attackPerLevel);
+}
+
 function getAttack(playerId: string, className?: CharacterClass) {
-  return baseAttack + getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").attackBonus + getAttackBonus(playerId);
+  return (
+    baseAttack +
+    getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").attackBonus +
+    getAttackBonus(playerId) +
+    getLevelAttackBonus(playerId)
+  );
 }
 
 function getDefense(playerId: string, className?: CharacterClass) {
@@ -1639,10 +1655,45 @@ function tickItemDrops(now: number) {
   }
 }
 
+function findChaseTarget(monster: MonsterSnapshot) {
+  let best: PlayerSnapshot | undefined;
+  let bestDist = Infinity;
+  for (const player of players.values()) {
+    if (player.hp <= 0 || player.mapId !== monster.mapId || isInSafeZone(player)) {
+      continue;
+    }
+
+    const dx = Math.abs(player.x - monster.x);
+    const dy = Math.abs(player.y - monster.y);
+    if (dx <= monsterAggroRangeX && dy <= monsterAggroRangeY && dx < bestDist) {
+      best = player;
+      bestDist = dx;
+    }
+  }
+
+  return best;
+}
+
 function tickMonsterPatrols(now: number, dt: number) {
   for (const spawn of getAllMonsterSpawns()) {
     const monster = monsters.get(spawn.id);
     if (!monster?.alive) {
+      continue;
+    }
+
+    const target = findChaseTarget(monster);
+    if (target) {
+      // Chase the nearest player, allowed to stray a little beyond the patrol range.
+      const direction = target.x < monster.x ? -1 : 1;
+      const minBound = spawn.patrolMinX - monsterChaseLeash;
+      const maxBound = spawn.patrolMaxX + monsterChaseLeash;
+      const chaseX = monster.x + direction * spawn.patrolSpeed * monsterChaseSpeedMultiplier * dt;
+      monsters.set(spawn.id, {
+        ...monster,
+        x: Math.max(minBound, Math.min(maxBound, chaseX)),
+        facing: direction < 0 ? "left" : "right",
+        updatedAt: now
+      });
       continue;
     }
 
@@ -2672,7 +2723,9 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
   const verticalRange = skill
     ? skill.verticalRange + classConfig.skillVerticalRangeBonus
     : classConfig.normalAttackVerticalRange;
-  const damage = skill ? skill.damage + classConfig.skillDamageBonus + getAttackBonus(playerId) : getAttack(playerId);
+  const damage = skill
+    ? skill.damage + classConfig.skillDamageBonus + getAttackBonus(playerId) + getLevelAttackBonus(playerId)
+    : getAttack(playerId);
 
   for (const monster of monsters.values()) {
     if (!monster.alive || monster.mapId !== attacker.mapId) {

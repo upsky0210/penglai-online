@@ -323,7 +323,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "weapon",
-    attackBonus: 15
+    attackBonus: 16
   },
   "coral-coat": {
     id: "coral-coat",
@@ -331,7 +331,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "armor",
-    defenseBonus: 12
+    defenseBonus: 13
   },
   "archive-wand": {
     id: "archive-wand",
@@ -339,7 +339,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "weapon",
-    attackBonus: 20
+    attackBonus: 22
   },
   "scholar-robe": {
     id: "scholar-robe",
@@ -347,7 +347,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "armor",
-    defenseBonus: 16
+    defenseBonus: 18
   },
   "star-sabre": {
     id: "star-sabre",
@@ -355,7 +355,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "weapon",
-    attackBonus: 25
+    attackBonus: 28
   },
   "observer-cloak": {
     id: "observer-cloak",
@@ -363,7 +363,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "armor",
-    defenseBonus: 20
+    defenseBonus: 22
   }
 };
 
