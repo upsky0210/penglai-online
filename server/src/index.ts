@@ -28,7 +28,7 @@ import {
   type ShopDefinition,
   type SkillId
 } from "@penglai/shared";
-import { GoogleAuthError, GoogleAuthVerifier } from "./googleAuth.js";
+import { GoogleAuthError, GoogleAuthVerifier, type VerifiedGoogleProfile } from "./googleAuth.js";
 import {
   bindAccountSaveSlot,
   createAuthSession,
@@ -65,6 +65,10 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID ?? "";
 const allowedGoogleHostedDomain = process.env.GOOGLE_HOSTED_DOMAIN ?? "";
 const authCorsOrigin = process.env.AUTH_CORS_ORIGIN ?? "*";
 const adminToken = process.env.ADMIN_TOKEN ?? "";
+// Test-only: when enabled, /auth/google also accepts "mock:<email>" credentials so the
+// login/binding/migration flow can be exercised without a real Google OAuth Client ID.
+// Must stay OFF in production.
+const authAllowMock = /^(1|true|yes)$/i.test(process.env.AUTH_ALLOW_MOCK ?? "");
 const backupDirectory = process.env.PENGLAI_BACKUP_DIR ?? join(dirname(getDatabasePath()), "../backups");
 const googleAuth = new GoogleAuthVerifier(googleClientId, allowedGoogleHostedDomain);
 const httpServer = createServer((request, response) => {
@@ -614,16 +618,48 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   sendJson(response, 404, { error: "not_found" });
 }
 
+function buildMockProfile(rawEmail: string): VerifiedGoogleProfile {
+  const email = rawEmail.trim().toLowerCase();
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0 || atIndex === email.length - 1) {
+    throw new GoogleAuthError("Mock credential must be mock:<email>.", "invalid_token");
+  }
+
+  const domain = email.slice(atIndex + 1);
+  if (allowedGoogleHostedDomain && domain !== allowedGoogleHostedDomain) {
+    throw new GoogleAuthError("Mock account is outside the allowed school domain.", "hosted_domain_not_allowed");
+  }
+
+  return {
+    subject: `mock-${email}`,
+    email,
+    hostedDomain: domain,
+    displayName: email.slice(0, atIndex)
+  };
+}
+
+async function resolveAuthProfile(credential: string): Promise<VerifiedGoogleProfile> {
+  if (authAllowMock && credential.startsWith("mock:")) {
+    return buildMockProfile(credential.slice("mock:".length));
+  }
+
+  if (credential.length < 20) {
+    throw new GoogleAuthError("Google token is too short.", "invalid_token");
+  }
+
+  return googleAuth.verifyCredential(credential);
+}
+
 async function handleGoogleAuth(request: IncomingMessage, response: ServerResponse) {
   try {
     const body = await readJsonBody(request);
     const credential = body.credential;
-    if (typeof credential !== "string" || credential.length < 20) {
+    if (typeof credential !== "string" || credential.length === 0) {
       sendJson(response, 400, { error: "missing_google_credential" });
       return;
     }
 
-    const profile = await googleAuth.verifyCredential(credential);
+    const profile = await resolveAuthProfile(credential);
     const account = upsertGoogleAccount(profile);
     const fallbackSlot = `account-${account.accountId.slice(5, 13)}`;
     const requestedSlot = typeof body.saveSlot === "string" ? body.saveSlot : getFirstSaveSlotForAccount(account.accountId);
@@ -828,7 +864,8 @@ function sendAdminSystem(response: ServerResponse, url: URL) {
     googleAuthConfigured: googleAuth.isConfigured,
     googleClientConfigured: Boolean(googleClientId),
     googleHostedDomain: allowedGoogleHostedDomain,
-    authCorsOrigin
+    authCorsOrigin,
+    authMockEnabled: authAllowMock
   });
 }
 
@@ -2942,5 +2979,10 @@ httpServer.listen(port, () => {
   }
   if (allowedGoogleHostedDomain) {
     console.log(`Google hosted domain restriction: ${allowedGoogleHostedDomain}`);
+  }
+  if (authAllowMock) {
+    console.warn(
+      "WARNING: AUTH_ALLOW_MOCK is ON. /auth/google accepts mock:<email> credentials for testing. Never enable this in production."
+    );
   }
 });

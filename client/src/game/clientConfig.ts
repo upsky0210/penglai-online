@@ -11,3 +11,7 @@ export const characterNamePresets = ["霧港旅人", "蓬萊學徒", "海線少�
 export const fallbackPlayerMp = 40;
 
 export const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+
+// Test-only: shows a mock login button on the title screen so the account/save
+// flow can be exercised without a real Google Client ID. Keep OFF for real builds.
+export const authAllowMock = import.meta.env.VITE_AUTH_ALLOW_MOCK === "1";

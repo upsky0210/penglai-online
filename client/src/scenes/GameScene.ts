@@ -24,7 +24,7 @@ import {
   type SkillId
 } from "@penglai/shared";
 import { gameHeight, gameWidth, jumpSpeed, moveSpeed } from "../game/constants";
-import { characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
+import { authAllowMock, characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
 import { GameAudioManager } from "../game/audioManager";
 import {
   mapBackgroundLayers,
@@ -406,10 +406,47 @@ export class GameScene extends Phaser.Scene {
       this.titleAuthText,
       this.titleNoticeText
     ]);
+    if (authAllowMock) {
+      overlay.add(this.createMockLoginButton());
+    }
     this.titleOverlay = overlay;
     this.updateTitleScreen();
     void this.mountGoogleButton();
     void this.refreshAuthSession();
+  }
+
+  private createMockLoginButton(): Phaser.GameObjects.Text {
+    const button = this.add
+      .text(gameWidth / 2, gameHeight / 2 + 184, "▶ 測試登入（輸入 Email）", {
+        fontSize: "13px",
+        color: "#ffd76a",
+        backgroundColor: "#1c3b2e",
+        padding: { x: 12, y: 6 }
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    button.on("pointerdown", () => this.promptMockLogin());
+    return button;
+  }
+
+  private promptMockLogin() {
+    if (this.authSessionId) {
+      this.showTitleNotice("已登入，無需再測試登入。");
+      return;
+    }
+
+    const email = window.prompt("輸入測試用 Email（例如 student01@test.local）：", "student01@test.local");
+    if (email === null) {
+      return;
+    }
+
+    const trimmed = email.trim();
+    if (!trimmed.includes("@") || trimmed.startsWith("@") || trimmed.endsWith("@")) {
+      this.showTitleNotice("Email 格式不正確，請輸入含 @ 的完整 Email。");
+      return;
+    }
+
+    void this.handleGoogleCredential(`mock:${trimmed}`);
   }
 
   private updateTitleScreen() {
