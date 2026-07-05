@@ -27,3 +27,6 @@ server/data/*.sqlite-wal
 
 # Local database backups (keep on disk, keep out of version control)
 server/backups/*.sqlite
+
+# Personal Claude Code overrides (permission allowlist etc.; per-machine, not shared)
+.claude/settings.local.json
