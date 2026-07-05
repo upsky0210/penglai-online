@@ -14,9 +14,9 @@ v1.1 依 Fable 5 紅隊審查修正了三處「規則與事實脫節」(侵權�
 
 - `npm run dev` — 同時起 server + client。**smoke 不會自己起 server(見下),改了 server/shared 要先重啟這個。**
 - `npm run typecheck` — 三個 workspace 全檢。
-- `npm run check:beta` — typecheck + client build + smoke + smoke:multi(提交前主閘)。**不含 audit:ui-text。**
+- `npm run check:beta` — typecheck + client build + smoke + smoke:multi + smoke:save-roundtrip(提交前主閘)。**不含 audit:ui-text。**
 - `npm run check:beta:v02` — v0.2 發佈檢查(檔案清單 + audit:ui-text + typecheck + build,**不含 smoke**);不要拿它當提交閘。
-- `npm run smoke:*` — 各系統煙霧測試(multi/interactable/warehouse/cavern/archive/observatory/quest-lock…)。
+- `npm run smoke:*` — 各系統煙霧測試(multi/interactable/warehouse/cavern/archive/observatory/quest-lock/save-roundtrip…)。
 - `npm run backup:db` / `npm run restore:db` — 備份 / 還原 runtime DB(restore 是破壞性,見下)。
 - `npm run audit:ui-text` — **只查 UI 文案編碼亂碼**(replacement char / private-use / Big5 mojibake),掃固定 8 檔;**非 `--strict` 有問題也 exit 0**。**注意:此腳本不查侵權名稱**,避免 MapleStory/金庸/Harry Potter 目前只能人工對照 SPEC 自查。
 
@@ -27,7 +27,7 @@ v1.1 依 Fable 5 紅隊審查修正了三處「規則與事實脫節」(侵權�
 1. 相關 `typecheck` 通過;動到的系統跑對應驗收:
    - 動 `server/src` 或 `shared/src` → 至少 `smoke` + `smoke:multi`;動特定系統(倉庫/洞窟/書庫/觀星台/任務鎖)→ 加跑對應 `smoke:*`;不確定就 `check:beta`。
    - **smoke 腳本只連 `localhost:8787`,不會自己起/編譯 server。改了 server/shared 後必須先重啟 dev server 再跑 smoke,否則測到的是舊進程、等於沒驗。**
-   - 動 `persistence.ts` 或存檔格式:目前**沒有對應 smoke**,必須手動做一輪存檔往返(舊 slot 能載入、export 的 save code 能 import 回等值),並考慮補一個 `smoke:save`。
+   - 動 `persistence.ts` 或存檔格式:跑 `smoke:save-roundtrip`(驗重連後 mapId/座標/等級等關鍵欄位存活、save code import 等值,已併入 `check:beta`)。它涵蓋不到的新格式/新欄位,仍要手動做一輪存檔往返(舊 slot 能載入、export 的 save code 能 import 回等值),並把新欄位加進 `smoke:save-roundtrip`。
 2. 玩法/畫面/多人同步改動:能驗就實際起 `npm run dev` 驗,回報時寫明**具體做了什麼、看到什麼**(例:「開兩 client,A 移動,B 畫面上 A 位置同步更新」)。做不到視覺驗證就直說並附一份 30 秒手動確認清單,不要寫「已觀察運作正常」這種空句。
 3. 據實回報:測試沒跑就說沒跑,失敗就貼輸出,不編造結果。
 

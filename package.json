@@ -22,9 +22,10 @@
     "smoke:observatory": "node scripts/observatory-smoke.mjs",
     "smoke:observatory-balance": "node scripts/observatory-balance-check.mjs",
     "smoke:quest-lock": "node scripts/quest-lock-smoke.mjs",
+    "smoke:save-roundtrip": "node scripts/save-roundtrip-smoke.mjs",
     "audit:ui-text": "node scripts/audit-ui-text.mjs",
     "check:beta:v02": "node scripts/beta-v02-check.mjs && npm run audit:ui-text && npm run typecheck && npm --workspace client run build",
-    "check:beta": "npm run typecheck && npm --workspace client run build && npm run smoke && npm run smoke:multi",
+    "check:beta": "npm run typecheck && npm --workspace client run build && npm run smoke && npm run smoke:multi && npm run smoke:save-roundtrip",
     "typecheck": "npm --workspace shared run typecheck && npm --workspace server run typecheck && npm --workspace client run typecheck"
   },
   "devDependencies": {

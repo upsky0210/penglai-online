@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
@@ -30,6 +30,7 @@ import {
 } from "@penglai/shared";
 import { GoogleAuthError, GoogleAuthVerifier, type VerifiedGoogleProfile } from "./googleAuth.js";
 import {
+  backupDatabaseTo,
   bindAccountSaveSlot,
   createAuthSession,
   cleanupSmokeTestData,
@@ -241,6 +242,14 @@ function getMaxMp(playerId: string, className?: CharacterClass) {
 
 function clampStat(value: number | undefined, max: number) {
   return Math.max(0, Math.min(value ?? max, max));
+}
+
+function clampCoordinate(value: number | undefined, max: number, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.min(value, max));
 }
 
 function createInitialQuests(): Map<string, QuestSnapshot> {
@@ -837,7 +846,7 @@ function createSqliteBackup() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `penglai-${timestamp}.sqlite`;
   const filePath = join(backupDirectory, fileName);
-  copyFileSync(databasePath, filePath);
+  backupDatabaseTo(filePath);
 
   const stats = statSync(filePath);
   return {
@@ -2816,13 +2825,29 @@ wss.on("connection", (ws, request) => {
   }
   playerEquipment.set(playerId, createEquipmentFromSave(savedGame.equipment));
 
+  // Restore the saved map when it is a known map; legacy saves (map_id migration
+  // backfills '') fall back to the default map *spawn* as a whole so the
+  // (mapId, x, y) trio stays consistent. Saved coordinates are clamped into the
+  // restored map's bounds.
+  const restoredMap =
+    savedCharacter && savedCharacter.mapId && GAME_MAPS[savedCharacter.mapId as MapId]
+      ? getGameMap(savedCharacter.mapId)
+      : undefined;
+  const spawnMap = restoredMap ?? DEFAULT_GAME_MAP;
+  const spawnX = restoredMap
+    ? clampCoordinate(savedCharacter?.x, spawnMap.width, spawnMap.playerSpawn.x)
+    : spawnMap.playerSpawn.x;
+  const spawnY = restoredMap
+    ? clampCoordinate(savedCharacter?.y, spawnMap.height, spawnMap.playerSpawn.y)
+    : spawnMap.playerSpawn.y;
+
   players.set(playerId, {
     id: playerId,
     name: savedCharacter?.name ?? `旅人-${playerId.slice(0, 4)}`,
     className: savedClassName,
-    mapId: DEFAULT_GAME_MAP.id,
-    x: savedCharacter?.x ?? DEFAULT_GAME_MAP.playerSpawn.x,
-    y: savedCharacter?.y ?? DEFAULT_GAME_MAP.playerSpawn.y,
+    mapId: spawnMap.id,
+    x: spawnX,
+    y: spawnY,
     facing: savedCharacter?.facing ?? "right",
     animation: "idle",
     level: savedCharacter?.level ?? 1,
@@ -2841,7 +2866,21 @@ wss.on("connection", (ws, request) => {
   inventories.set(playerId, createInventoryFromSave(savedGame.inventory));
   playerSkillReadyAt.set(playerId, new Map());
 
-  send(ws, { type: "session:welcome", playerId, saveSlot, authenticated: Boolean(authSession), mapId: DEFAULT_GAME_MAP.id });
+  send(ws, { type: "session:welcome", playerId, saveSlot, authenticated: Boolean(authSession), mapId: spawnMap.id });
+  if (restoredMap) {
+    // Align the client with the restored location (it boots on the default map at
+    // its spawn) and grant the same brief grace window as portal travel so a
+    // reconnect inside a monster zone is not an instant death.
+    playerInvulnerableUntil.set(playerId, Date.now() + playerRespawnInvulnerableMs);
+    send(ws, {
+      type: "map:change",
+      playerId,
+      mapId: spawnMap.id,
+      x: spawnX,
+      y: spawnY,
+      map: spawnMap
+    });
+  }
   const latestAnnouncement = listActiveAdminAnnouncements(1)[0];
   if (latestAnnouncement) {
     send(ws, {

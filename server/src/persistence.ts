@@ -23,6 +23,9 @@ export interface SavedCharacter {
   gold: number;
   hp: number;
   mp: number;
+  // Empty string on rows saved before the map_id migration; callers must fall back
+  // to the default map spawn as a consistent (mapId, x, y) trio.
+  mapId: string;
   x: number;
   y: number;
   facing: Facing;
@@ -58,6 +61,7 @@ interface CharacterRow {
   gold: number;
   hp: number;
   mp: number;
+  map_id: string;
   x: number;
   y: number;
   facing: Facing;
@@ -517,12 +521,13 @@ addColumnIfMissing("test_feedback", "status", "TEXT NOT NULL DEFAULT 'open'");
 addColumnIfMissing("test_feedback", "admin_note", "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("test_feedback", "updated_at", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("quest_states", "interacted_target_ids", "TEXT NOT NULL DEFAULT '[]'");
+addColumnIfMissing("characters", "map_id", "TEXT NOT NULL DEFAULT ''");
 
 export function loadGame(saveSlot: string): SavedGame {
   const character = db
     .prepare(
       `
-        SELECT name, class_name, level, exp, exp_to_next, gold, hp, mp, x, y, facing
+        SELECT name, class_name, level, exp, exp_to_next, gold, hp, mp, map_id, x, y, facing
         FROM characters
         WHERE save_slot = ?
       `
@@ -582,6 +587,7 @@ export function loadGame(saveSlot: string): SavedGame {
           gold: character.gold,
           hp: character.hp,
           mp: character.mp,
+          mapId: character.map_id,
           x: character.x,
           y: character.y,
           facing: character.facing
@@ -618,12 +624,13 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
           gold,
           hp,
           mp,
+          map_id,
           x,
           y,
           facing,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(save_slot) DO UPDATE SET
           name = excluded.name,
           class_name = excluded.class_name,
@@ -633,6 +640,7 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
           gold = excluded.gold,
           hp = excluded.hp,
           mp = excluded.mp,
+          map_id = excluded.map_id,
           x = excluded.x,
           y = excluded.y,
           facing = excluded.facing,
@@ -648,6 +656,7 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
       data.player.gold,
       data.player.hp,
       data.player.mp,
+      data.player.mapId,
       data.player.x,
       data.player.y,
       data.player.facing,
@@ -693,6 +702,12 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+// WAL-safe backup: VACUUM INTO writes a consistent single-file snapshot including
+// committed transactions still sitting in the -wal file, which a plain file copy misses.
+export function backupDatabaseTo(targetPath: string) {
+  db.exec(`VACUUM INTO '${targetPath.replace(/'/g, "''")}'`);
 }
 
 export function upsertGoogleAccount(profile: GoogleAccountProfile) {
