@@ -485,6 +485,11 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
     return;
   }
 
+  if (url.pathname === "/debug/broadcast-stats" && request.method === "GET") {
+    sendBroadcastStats(response);
+    return;
+  }
+
   if (url.pathname === "/auth/google" && request.method === "POST") {
     await handleGoogleAuth(request, response);
     return;
@@ -1531,6 +1536,31 @@ function savePlayerGame(playerId: string) {
   });
 }
 
+// 廣播成本計數器:僅供 smoke:broadcast-budget 讀取(/debug/broadcast-stats),不影響遊戲邏輯。
+const broadcastStats = {
+  passes: 0,
+  snapshotSerializations: 0,
+  snapshotMessages: 0,
+  snapshotBytes: 0
+};
+
+function sendBroadcastStats(response: ServerResponse) {
+  const activeMapIds = new Set<string>();
+  for (const playerId of sockets.keys()) {
+    const player = players.get(playerId);
+    if (player) {
+      activeMapIds.add(player.mapId);
+    }
+  }
+
+  sendJson(response, 200, {
+    ok: true,
+    ...broadcastStats,
+    online: sockets.size,
+    activeMaps: activeMapIds.size
+  });
+}
+
 function send(ws: WebSocket, message: ServerMessage) {
   ws.send(JSON.stringify(message));
 }
@@ -1575,24 +1605,43 @@ function getMapItemDrops(mapId: MapId) {
   return [...itemDrops.values()].filter((drop) => drop.mapId === mapId);
 }
 
-function sendWorldSnapshot(playerId: string) {
-  const player = players.get(playerId);
-  if (!player) {
-    return;
+function broadcastWorldSnapshots() {
+  broadcastStats.passes += 1;
+
+  // 同圖玩家收到的 world:snapshot 完全相同(無 per-receiver 欄位),
+  // 按 mapId 分組後每張有人的圖只序列化一次,同一份字串發給該圖所有連線。
+  const mapSockets = new Map<MapId, WebSocket[]>();
+  for (const [playerId, ws] of sockets) {
+    if (ws.readyState !== WebSocket.OPEN) {
+      continue;
+    }
+    const player = players.get(playerId);
+    if (!player) {
+      continue;
+    }
+    const list = mapSockets.get(player.mapId);
+    if (list) {
+      list.push(ws);
+    } else {
+      mapSockets.set(player.mapId, [ws]);
+    }
   }
 
-  sendToPlayer(playerId, {
-    type: "world:snapshot",
-    mapId: player.mapId,
-    players: getMapPlayers(player.mapId),
-    monsters: getMapMonsters(player.mapId),
-    itemDrops: getMapItemDrops(player.mapId)
-  });
-}
-
-function broadcastWorldSnapshots() {
-  for (const playerId of sockets.keys()) {
-    sendWorldSnapshot(playerId);
+  for (const [mapId, wsList] of mapSockets) {
+    const message: ServerMessage = {
+      type: "world:snapshot",
+      mapId,
+      players: getMapPlayers(mapId),
+      monsters: getMapMonsters(mapId),
+      itemDrops: getMapItemDrops(mapId)
+    };
+    const data = JSON.stringify(message);
+    broadcastStats.snapshotSerializations += 1;
+    broadcastStats.snapshotMessages += wsList.length;
+    broadcastStats.snapshotBytes += data.length * wsList.length;
+    for (const ws of wsList) {
+      ws.send(data);
+    }
   }
 }
 
