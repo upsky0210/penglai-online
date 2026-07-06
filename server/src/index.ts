@@ -9,6 +9,7 @@ import {
   FOG_HARBOR_TEST_MAP,
   GAME_MAPS,
   ITEM_DEFINITIONS,
+  MAP_CONTACT_DAMAGE,
   MONSTER_KIND_NAMES,
   QUEST_DEFINITIONS,
   SHOP_DEFINITIONS,
@@ -101,7 +102,6 @@ let classroomChatLockMessage = "課堂聊天已暫停，請聽老師說明。";
 const baseAttack = 12;
 const baseDefense = 0;
 const attackPerLevel = 2;
-const contactDamage = 12;
 const contactDamageCooldownMs = 850;
 // Monster aggro: within this range a monster chases the nearest player instead of patrolling.
 const monsterAggroRangeX = 240;
@@ -1784,7 +1784,7 @@ function tickPlayerHazards(now: number) {
       continue;
     }
 
-    damagePlayer(player.id, contactDamage, now);
+    damagePlayer(player.id, MAP_CONTACT_DAMAGE[player.mapId], now);
   }
 }
 
@@ -2732,24 +2732,40 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
   const verticalRange = skill
     ? skill.verticalRange + classConfig.skillVerticalRangeBonus
     : classConfig.normalAttackVerticalRange;
-  const damage = skill
+  const baseDamage = skill
     ? skill.damage + classConfig.skillDamageBonus + getAttackBonus(playerId) + getLevelAttackBonus(playerId)
     : getAttack(playerId);
+  // 技能穿透最多 3 隻、普攻單體(docs/DESIGN-DECISIONS.md D2)
+  const maxTargets = skill ? 3 : 1;
 
-  for (const monster of monsters.values()) {
-    if (!monster.alive || monster.mapId !== attacker.mapId) {
-      continue;
+  const targets = [...monsters.values()]
+    .filter((monster) => {
+      if (!monster.alive || monster.mapId !== attacker.mapId) {
+        return false;
+      }
+
+      const dx = monster.x - attacker.x;
+      const dy = Math.abs(monster.y - attacker.y);
+      const inFront = attacker.facing === "right" ? dx >= 0 : dx <= 0;
+      return inFront && Math.abs(dx) <= range && dy <= verticalRange;
+    })
+    .sort((a, b) => Math.abs(a.x - attacker.x) - Math.abs(b.x - attacker.x))
+    .slice(0, maxTargets);
+
+  if (targets.length === 0) {
+    sendCombatMiss(playerId, message.isSkill, skill?.id);
+
+    if (skill) {
+      snapshot();
     }
+    return;
+  }
 
+  let anyDefeated = false;
+  for (const monster of targets) {
+    // 傷害 ±15% 浮動(docs/DESIGN-DECISIONS.md D3)
+    const damage = Math.max(1, Math.round(baseDamage * (0.9 + Math.random() * 0.25)));
     const dx = monster.x - attacker.x;
-    const dy = Math.abs(monster.y - attacker.y);
-    const inFront = attacker.facing === "right" ? dx >= 0 : dx <= 0;
-    const inRange = Math.abs(dx) <= range && dy <= verticalRange;
-
-    if (!inFront || !inRange) {
-      continue;
-    }
-
     const nextHp = Math.max(0, monster.hp - damage);
     const defeated = nextHp === 0;
     const spawn = getMonsterSpawn(monster.id);
@@ -2764,11 +2780,11 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
     });
 
     if (defeated) {
+      anyDefeated = true;
       respawnAt.set(monster.id, now + (spawn?.respawnMs ?? 3500));
       awardExp(playerId, expGained);
       progressKillQuest(playerId, monster.kind);
       createMonsterDrops(monster);
-      savePlayerGame(playerId);
     }
 
     sendToPlayer(playerId, {
@@ -2782,15 +2798,12 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
       isSkill: message.isSkill,
       skillId: skill?.id
     });
-    snapshot();
-    return;
   }
 
-  sendCombatMiss(playerId, message.isSkill, skill?.id);
-
-  if (skill) {
-    snapshot();
+  if (anyDefeated) {
+    savePlayerGame(playerId);
   }
+  snapshot();
 }
 
 setInterval(() => {

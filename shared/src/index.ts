@@ -16,6 +16,17 @@ export type MapId =
   | "sunken-archive"
   | "starlit-observatory";
 
+// 接觸傷害隨章節上升(docs/DESIGN-DECISIONS.md D4),取代全域單一常數;
+// 低等玩家闖後期圖會被快速打死是預期行為(章節任務鎖預期按序推進)。
+export const MAP_CONTACT_DAMAGE: Record<MapId, number> = {
+  "fog-harbor-test": 12,
+  "mist-breakwater": 12,
+  "old-harbor-warehouse": 16,
+  "coral-tide-cavern": 20,
+  "sunken-archive": 26,
+  "starlit-observatory": 32
+};
+
 export interface PlayerSnapshot {
   id: string;
   name: string;

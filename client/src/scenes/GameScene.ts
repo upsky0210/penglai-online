@@ -23,7 +23,7 @@ import {
   type ShopDefinition,
   type SkillId
 } from "@penglai/shared";
-import { gameHeight, gameWidth, jumpSpeed, moveSpeed } from "../game/constants";
+import { gameHeight, gameWidth, jumpSpeed, moveSpeed, normalAttackCooldownMs } from "../game/constants";
 import { authAllowMock, characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
 import { GameAudioManager } from "../game/audioManager";
 import {
@@ -237,6 +237,7 @@ export class GameScene extends Phaser.Scene {
   private localAttack = 12;
   private localDefense = 0;
   private skillReadyAt = 0;
+  private attackReadyAt = 0;
   private gameStarted = false;
   private titleOverlay?: Phaser.GameObjects.Container;
   private titleSlotText?: Phaser.GameObjects.Text;
@@ -1310,7 +1311,9 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityY(jumpSpeed);
     }
 
-    if (attack) {
+    if (attack && this.time.now >= this.attackReadyAt) {
+      // 節奏鎖期間按 K 不出手也不播音效,空揮音效會讓拍子感覺像失靈(D2)
+      this.attackReadyAt = this.time.now + normalAttackCooldownMs;
       this.audio.playAttackSound(false);
       this.flashHitbox(false);
       this.sendAttack(false);
@@ -2660,8 +2663,13 @@ export class GameScene extends Phaser.Scene {
         if (message.playerId === this.playerId) {
           this.audio.playHitSound(message.isSkill, message.defeated, message.skillId);
           if (message.isSkill) {
-            this.cameras.main.shake(90, 0.0014);
+            this.cameras.main.shake(110, 0.002);
+          } else if (message.defeated) {
+            this.cameras.main.shake(100, 0.0018);
+          } else {
+            this.cameras.main.shake(60, 0.0008);
           }
+          this.nudgeMonsterView(message.monsterId);
           if (message.expGained > 0) {
             this.showExpGain(message.expGained);
           }
@@ -3052,7 +3060,8 @@ export class GameScene extends Phaser.Scene {
     this.monsterSnapshots = new Map(monsters.map((monster) => [monster.id, monster]));
     for (const monster of monsters) {
       const view = this.getOrCreateMonsterView(monster);
-      view.body.setPosition(monster.x, monster.y);
+      view.baseX = monster.x;
+      view.body.setPosition(monster.x + view.hitOffsetX, monster.y);
       view.body.setAlpha(monster.alive ? 1 : 0.25);
       if (view.body instanceof Phaser.GameObjects.Sprite) {
         view.body.setFlipX(monster.facing === "left");
@@ -3082,6 +3091,7 @@ export class GameScene extends Phaser.Scene {
     const liveIds = new Set(monsters.map((monster) => monster.id));
     for (const [id, view] of this.monsters) {
       if (!liveIds.has(id)) {
+        this.tweens.killTweensOf(view);
         view.body.destroy();
         view.eye?.destroy();
         view.hpBack.destroy();
@@ -3178,9 +3188,39 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    view = { body, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt };
+    view = { body, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt, baseX: monster.x, hitOffsetX: 0 };
     this.monsters.set(monster.id, view);
     return view;
+  }
+
+  private nudgeMonsterView(monsterId: string) {
+    const view = this.monsters.get(monsterId);
+    if (!view || !this.player) {
+      return;
+    }
+
+    // 往攻擊反方向推 8px、120ms 內彈回;只動顯示座標,快照仍是權威(D3)
+    const direction = view.baseX >= this.player.x ? 1 : -1;
+    this.tweens.killTweensOf(view);
+    view.hitOffsetX = 0;
+    this.tweens.add({
+      targets: view,
+      hitOffsetX: direction * 8,
+      duration: 60,
+      yoyo: true,
+      ease: "Quad.easeOut",
+      onUpdate: () => {
+        if (view.body.active) {
+          view.body.x = view.baseX + view.hitOffsetX;
+        }
+      },
+      onComplete: () => {
+        view.hitOffsetX = 0;
+        if (view.body.active) {
+          view.body.x = view.baseX;
+        }
+      }
+    });
   }
 
   private getMonsterColor(kind: MonsterSnapshot["kind"]) {

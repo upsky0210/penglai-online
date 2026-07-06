@@ -7,6 +7,9 @@ export interface MonsterView {
   hpFill: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
   lastHitAt: number;
+  // 受擊位移只動 view 不動同步座標;baseX 是快照座標,hitOffsetX 由受擊 tween 推動
+  baseX: number;
+  hitOffsetX: number;
 }
 
 export interface ItemDropView {
