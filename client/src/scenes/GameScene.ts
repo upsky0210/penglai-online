@@ -154,6 +154,8 @@ export class GameScene extends Phaser.Scene {
   private playerId = "";
   private ws?: WebSocket;
   private remotePlayers = new Map<string, Phaser.GameObjects.Sprite>();
+  private remotePlayerLastAnimation = new Map<string, PlayerAnimation>();
+  private remoteAttackSoundReadyAt = 0;
   private monsters = new Map<string, MonsterView>();
   private itemDrops = new Map<string, ItemDropView>();
   private statusText?: Phaser.GameObjects.Text;
@@ -1024,7 +1026,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getPrimarySkill() {
-    return SKILL_DEFINITIONS[CLASS_SKILL_IDS[this.localClassName]];
+    return this.getPrimarySkillFor(this.localClassName);
+  }
+
+  private getPrimarySkillFor(className: CharacterClass) {
+    return SKILL_DEFINITIONS[CLASS_SKILL_IDS[className]];
   }
 
   private isCharacterClass(value: unknown): value is CharacterClass {
@@ -3045,6 +3051,14 @@ export class GameScene extends Phaser.Scene {
       marker.setFlipX(player.facing === "left");
       marker.setAlpha(player.hp > 0 ? 1 : 0.35);
       this.applyPlayerSpriteAnimation(marker, player.animation);
+
+      // 邊緣偵測:snapshot 15Hz 下 animation 持續為 attack/skill 時只演一次,回到其他狀態後才可再觸發
+      const previousAnimation = this.remotePlayerLastAnimation.get(player.id);
+      const isAttacking = player.animation === "attack" || player.animation === "skill";
+      if (isAttacking && player.animation !== previousAnimation && player.hp > 0) {
+        this.playRemoteAttackTelegraph(player);
+      }
+      this.remotePlayerLastAnimation.set(player.id, player.animation);
     }
 
     const liveIds = new Set(players.map((player) => player.id));
@@ -3052,7 +3066,23 @@ export class GameScene extends Phaser.Scene {
       if (!liveIds.has(id)) {
         marker.destroy();
         this.remotePlayers.delete(id);
+        this.remotePlayerLastAnimation.delete(id);
       }
+    }
+  }
+
+  private playRemoteAttackTelegraph(player: PlayerSnapshot) {
+    const direction = player.facing === "left" ? -1 : 1;
+    const isSkill = player.animation === "skill";
+    this.flashAttackTelegraph(player.x, player.y, direction, player.className, isSkill);
+
+    // 音效只在該玩家進到畫面內才播,並全域節流,避免多人同圖時吵爆
+    if (
+      this.cameras.main.worldView.contains(player.x, player.y) &&
+      this.time.now >= this.remoteAttackSoundReadyAt
+    ) {
+      this.remoteAttackSoundReadyAt = this.time.now + 150;
+      this.audio.playRemoteAttackSound(isSkill, CLASS_SKILL_IDS[player.className]);
     }
   }
 
@@ -3614,31 +3644,32 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (!isSkill) {
-      this.flashBasicAttack();
-      return;
-    }
-
-    if (this.localClassName === "swordsman") {
-      this.flashSwordCleave();
-      return;
-    }
-
-    if (this.localClassName === "talisman") {
-      this.flashSpiritTalisman();
-      return;
-    }
-
-    this.flashHunterShot();
+    const direction = this.facing === "right" ? 1 : -1;
+    this.flashAttackTelegraph(this.player.x, this.player.y, direction, this.localClassName, isSkill);
   }
 
-  private flashBasicAttack() {
-    if (!this.player) {
+  private flashAttackTelegraph(x: number, y: number, direction: 1 | -1, className: CharacterClass, isSkill: boolean) {
+    if (!isSkill) {
+      this.flashBasicAttack(x, y, direction);
       return;
     }
 
-    const x = this.player.x + (this.facing === "right" ? 42 : -42);
-    const hitbox = this.add.rectangle(x, this.player.y, 58, 34, 0xffd36d, 0.45);
+    if (className === "swordsman") {
+      this.flashSwordCleave(x, y, direction);
+      return;
+    }
+
+    if (className === "talisman") {
+      this.flashSpiritTalisman(x, y, direction);
+      return;
+    }
+
+    this.flashHunterShot(x, y, direction);
+  }
+
+  private flashBasicAttack(originX: number, originY: number, direction: 1 | -1) {
+    const x = originX + direction * 42;
+    const hitbox = this.add.rectangle(x, originY, 58, 34, 0xffd36d, 0.45);
     this.tweens.add({
       targets: hitbox,
       alpha: 0,
@@ -3647,14 +3678,9 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private flashSwordCleave() {
-    if (!this.player) {
-      return;
-    }
-
-    const direction = this.facing === "right" ? 1 : -1;
-    const x = this.player.x + direction * 52;
-    const y = this.player.y - 4;
+  private flashSwordCleave(originX: number, originY: number, direction: 1 | -1) {
+    const x = originX + direction * 52;
+    const y = originY - 4;
     const slash = this.add.container(x, y);
     const outer = this.add.rectangle(0, 0, 24, 96, 0x8fe7ff, 0.62).setAngle(direction * -30);
     const inner = this.add.rectangle(direction * 8, 0, 9, 82, 0xf8fdff, 0.86).setAngle(direction * -30);
@@ -3674,15 +3700,10 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private flashSpiritTalisman() {
-    if (!this.player) {
-      return;
-    }
-
-    const direction = this.facing === "right" ? 1 : -1;
-    const startX = this.player.x + direction * 30;
-    const y = this.player.y - 10;
-    const skill = this.getPrimarySkill();
+  private flashSpiritTalisman(originX: number, originY: number, direction: 1 | -1) {
+    const startX = originX + direction * 30;
+    const y = originY - 10;
+    const skill = this.getPrimarySkillFor("talisman");
     const travel = Math.min(skill.range, 140) * direction;
     const charm = this.add.container(startX, y);
     const trail = this.add.rectangle(-direction * 24, 0, 52, 6, 0x70ddff, 0.32);
@@ -3709,16 +3730,11 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private flashHunterShot() {
-    if (!this.player) {
-      return;
-    }
-
-    const primarySkill = this.getPrimarySkill();
-    const direction = this.facing === "right" ? 1 : -1;
+  private flashHunterShot(originX: number, originY: number, direction: 1 | -1) {
+    const primarySkill = this.getPrimarySkillFor("hunter");
     const width = Math.min(primarySkill.range, 150);
-    const startX = this.player.x + direction * (width / 2 + 22);
-    const y = this.player.y - 7;
+    const startX = originX + direction * (width / 2 + 22);
+    const y = originY - 7;
     const shot = this.add.container(startX, y);
     const line = this.add.rectangle(0, 0, width, 5, 0xd9f0ff, 0.78);
     const core = this.add.rectangle(direction * 12, 0, width * 0.72, 2, 0xfff4b8, 0.94);

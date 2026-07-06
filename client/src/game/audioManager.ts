@@ -87,6 +87,17 @@ export class GameAudioManager {
     this.playTone(420, 42, 0.018, "square", 45, 260);
   }
 
+  playRemoteAttackSound(isSkill: boolean, skillId?: SkillId) {
+    // 遠端玩家出手的輕量版:單音、約自己出手音量的四成,多人同圖才不會吵
+    if (!isSkill) {
+      this.playTone(230, 42, 0.01, "square", 0, 170);
+      return;
+    }
+
+    const frequency = skillId === "spirit-talisman" ? 520 : skillId === "hunter-shot" ? 980 : 360;
+    this.playTone(frequency, 55, 0.012, "triangle", 0, frequency + 180);
+  }
+
   playHitSound(isSkill: boolean, defeated: boolean, skillId?: SkillId) {
     if (isSkill) {
       const frequency = skillId === "spirit-talisman" ? 720 : skillId === "hunter-shot" ? 840 : 560;
