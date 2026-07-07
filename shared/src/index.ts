@@ -1000,7 +1000,57 @@ export const FOG_HARBOR_SHOP: ShopDefinition = {
   ]
 };
 
-export const SHOP_DEFINITIONS: ShopDefinition[] = [FOG_HARBOR_SHOP];
+// 後續章節購物點(DESIGN-DECISIONS D13):救活金幣經濟,不加新系統,複用 ShopDefinition。
+// 各賣中後期消耗品 + 一件保底裝備(定價 ≈ 該章任務金幣總額的 70%,買了近破產,掉落仍是主路徑)。
+export const CORAL_CAVERN_SHOP: ShopDefinition = {
+  id: "coral-cavern-supplies",
+  npcId: "cavern-scholar",
+  name: "阿璇的潮洞補給",
+  items: [
+    {
+      itemId: "small-hp-potion",
+      quantity: 1,
+      priceGold: 15
+    },
+    {
+      itemId: "medium-hp-potion",
+      quantity: 1,
+      priceGold: 40
+    },
+    {
+      // 保底裝備:第三章任務金幣總額約 525,定價 360 ≈ 70%
+      itemId: "coral-coat",
+      quantity: 1,
+      priceGold: 360
+    }
+  ]
+};
+
+export const OBSERVATORY_SHOP: ShopDefinition = {
+  id: "observatory-supplies",
+  npcId: "observatory-keeper",
+  name: "阿曜的觀測補給",
+  items: [
+    {
+      itemId: "small-hp-potion",
+      quantity: 1,
+      priceGold: 15
+    },
+    {
+      itemId: "medium-hp-potion",
+      quantity: 1,
+      priceGold: 40
+    },
+    {
+      // 保底裝備:第五章任務金幣總額約 1090,定價 760 ≈ 70%
+      itemId: "observer-cloak",
+      quantity: 1,
+      priceGold: 760
+    }
+  ]
+};
+
+export const SHOP_DEFINITIONS: ShopDefinition[] = [FOG_HARBOR_SHOP, CORAL_CAVERN_SHOP, OBSERVATORY_SHOP];
 
 export const SKILL_DEFINITIONS: Record<SkillId, SkillDefinition> = {
   "sword-cleave": {

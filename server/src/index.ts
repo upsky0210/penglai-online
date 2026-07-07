@@ -139,6 +139,16 @@ const equipmentDropMapRestrictions: Partial<Record<ItemId, MapId>> = {
   "observer-cloak": "starlit-observatory"
 };
 const equipmentDropChanceMultiplier = Number.parseFloat(process.env.EQUIPMENT_DROP_CHANCE_MULTIPLIER ?? "1");
+// 小紅藥分章遞減(DESIGN-DECISIONS D6):第一章教學期維持 100%,之後遞減,讓後期生存壓力與金幣經濟復活。
+// 王的保底中紅藥(createMonsterDrops 內各王額外掉落)不受此影響。
+const mapPotionDropChance: Record<MapId, number> = {
+  "fog-harbor-test": 1,
+  "mist-breakwater": 1,
+  "old-harbor-warehouse": 0.6,
+  "coral-tide-cavern": 0.35,
+  "sunken-archive": 0.35,
+  "starlit-observatory": 0.35
+};
 const characterClasses = new Set<CharacterClass>(["swordsman", "talisman", "hunter"]);
 const classConfigs: Record<
   CharacterClass,
@@ -2078,7 +2088,10 @@ function createEquipmentDrops(mapId: MapId, x: number, y: number) {
 }
 
 function createMonsterDrops(monster: MonsterSnapshot) {
-  createItemDrop("small-hp-potion", 1, monster.mapId, monster.x, monster.y);
+  // 分章遞減的小紅藥掉落(D6):不再無條件 100%,讓藥水成為要花金幣買的資源。
+  if (Math.random() <= (mapPotionDropChance[monster.mapId] ?? 1)) {
+    createItemDrop("small-hp-potion", 1, monster.mapId, monster.x, monster.y);
+  }
   if ((monster.kind === "mist-puppet" || monster.kind === "warehouse-sentry") && Math.random() <= 0.35) {
     createItemDrop("medium-hp-potion", 1, monster.mapId, monster.x - 34, monster.y);
   }
