@@ -4708,7 +4708,7 @@ export class GameScene extends Phaser.Scene {
             monster,
             questId: "tide-watcher-core",
             name: "潮眼守衛",
-            defeatedText: "潮眼守衛已擊退 | 拾取甲片後找測潮學徒阿澄"
+            defeatedText: "潮眼守衛已擊退 | 拾取甲片後找測潮學徒阿汐"
           }
         : undefined;
     }

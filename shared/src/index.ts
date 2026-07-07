@@ -346,7 +346,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
   },
   "archive-wand": {
     id: "archive-wand",
-    name: "潮墨法杖",
+    name: "潮墨符筆",
     kind: "equipment",
     maxStack: 1,
     equipmentSlot: "weapon",
@@ -1306,7 +1306,7 @@ export const MIST_BREAKWATER_MAP: GameMapData = {
     },
     {
       id: "tide-researcher-yu",
-      name: "測潮學徒阿澄",
+      name: "測潮學徒阿汐",
       x: 1320,
       y: 466,
       interactionRadius: 78
