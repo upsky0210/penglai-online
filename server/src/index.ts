@@ -1655,11 +1655,6 @@ function broadcastWorldSnapshots() {
   }
 }
 
-function snapshot() {
-  tickMonsterRespawns();
-  broadcastWorldSnapshots();
-}
-
 function tickMonsterRespawns() {
   const now = Date.now();
   for (const spawn of getAllMonsterSpawns()) {
@@ -2183,7 +2178,6 @@ function handleItemPickup(playerId: string, dropId: string) {
   progressCollectQuests(playerId, drop.itemId);
   sendItemNotice(playerId, `拾取 ${drop.name} x${drop.quantity}。`, drop.itemId, drop.quantity);
   savePlayerGame(playerId);
-  snapshot();
 }
 
 function handleUseItem(playerId: string, itemId: ItemId) {
@@ -2228,7 +2222,6 @@ function handleUseItem(playerId: string, itemId: ItemId) {
   sendInventory(playerId);
   sendItemNotice(playerId, `使用 ${item.name}。`, itemId, inventory.get(itemId) ?? 0, healed);
   savePlayerGame(playerId);
-  snapshot();
 }
 
 function handleEquipItem(playerId: string, itemId: ItemId) {
@@ -2262,7 +2255,6 @@ function handleEquipItem(playerId: string, itemId: ItemId) {
   sendEquipment(playerId);
   sendItemNotice(playerId, `已裝備 ${item.name}。`, itemId, quantity);
   savePlayerGame(playerId);
-  snapshot();
 }
 
 function getNpc(player: PlayerSnapshot, npcId: string) {
@@ -2640,7 +2632,6 @@ function handleNpcInteract(playerId: string, npcId: string) {
     sendQuestNotice(playerId, "任務完成：已領取獎勵。", quest.rewardExp, quest.rewardGold);
     syncUnlockedAvailableQuests(playerId, quests);
     savePlayerGame(playerId);
-    snapshot();
     return;
   }
 
@@ -2678,7 +2669,6 @@ function handleShopBuy(playerId: string, message: Extract<ClientMessage, { type:
   addInventoryItem(playerId, offer.itemId, itemQuantity);
   sendShopNotice(playerId, `花費 ${priceGold} 金幣購買 ${item.name} x${itemQuantity}。`, offer.itemId, itemQuantity, priceGold);
   savePlayerGame(playerId);
-  snapshot();
 }
 
 function progressKillQuest(playerId: string, monsterKind: MonsterSnapshot["kind"]) {
@@ -2816,10 +2806,6 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
 
   if (targets.length === 0) {
     sendCombatMiss(playerId, message.isSkill, skill?.id);
-
-    if (skill) {
-      snapshot();
-    }
     return;
   }
 
@@ -2865,7 +2851,6 @@ function handleAttack(playerId: string, message: Extract<ClientMessage, { type: 
   if (anyDefeated) {
     savePlayerGame(playerId);
   }
-  snapshot();
 }
 
 setInterval(() => {
@@ -2970,7 +2955,7 @@ wss.on("connection", (ws, request) => {
   sendInventory(playerId);
   sendEquipment(playerId);
   savePlayerGame(playerId);
-  snapshot();
+  broadcastWorldSnapshots();
 
   ws.on("message", (raw) => {
     let message: ClientMessage;
@@ -3131,7 +3116,7 @@ wss.on("connection", (ws, request) => {
     playerDamageCooldownUntil.delete(playerId);
     playerInvulnerableUntil.delete(playerId);
     broadcast({ type: "player:left", playerId });
-    snapshot();
+    broadcastWorldSnapshots();
   });
 });
 
