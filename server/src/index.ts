@@ -95,6 +95,7 @@ const playerChatReadyAt = new Map<string, number>();
 const playerReturnSafeReadyAt = new Map<string, number>();
 const mutedPlayers = new Map<string, { reason: string; mutedAt: number }>();
 const recentAttacks = new Map<string, number>();
+const dirtyPlayerSaves = new Set<string>();
 let lastWorldTickAt = Date.now();
 let classroomChatLocked = false;
 let classroomChatLockMessage = "課堂聊天已暫停，請聽老師說明。";
@@ -109,6 +110,7 @@ const monsterAggroRangeY = 84;
 const monsterChaseSpeedMultiplier = 1.7;
 const monsterChaseLeash = 140;
 const playerRespawnDelayMs = 1500;
+const saveFlushIntervalMs = 2000;
 const playerRespawnInvulnerableMs = 1200;
 const itemPickupRange = 72;
 const itemDropLifetimeMs = 60_000;
@@ -784,6 +786,7 @@ function sendAdminSummary(response: ServerResponse, url: URL) {
     return;
   }
 
+  flushDirtyPlayerGames();
   sendJson(response, 200, {
     ...getAdminSummary(),
     betaFeedback: createBetaFeedbackSummary()
@@ -852,6 +855,7 @@ function getBackupFiles() {
 }
 
 function createSqliteBackup() {
+  flushDirtyPlayerGames();
   const databasePath = getDatabasePath();
   if (!existsSync(databasePath)) {
     throw new Error("database_not_found");
@@ -939,6 +943,7 @@ function sendAdminSaveAudit(response: ServerResponse, url: URL) {
     return;
   }
 
+  flushDirtyPlayerGames();
   sendJson(response, 200, getAdminSaveAudit());
 }
 
@@ -998,6 +1003,7 @@ function sendAdminCharacters(response: ServerResponse, url: URL) {
     return;
   }
 
+  flushDirtyPlayerGames();
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "200", 10);
   sendJson(response, 200, {
     characters: listAdminCharacters(Number.isFinite(limit) ? limit : 200)
@@ -1010,6 +1016,7 @@ function sendAdminCharactersCsv(response: ServerResponse, url: URL) {
     return;
   }
 
+  flushDirtyPlayerGames();
   const characters = listAdminCharacters(1000);
   const lines = [
     ["save_slot", "character_name", "class_name", "level", "gold", "account_email", "hosted_domain", "updated_at"].map(
@@ -1531,11 +1538,12 @@ function syncPlayerStats(playerId: string) {
   });
 }
 
-function savePlayerGame(playerId: string) {
+function persistPlayerGame(playerId: string) {
   const saveSlot = playerSaveSlots.get(playerId);
   const player = players.get(playerId);
   if (!saveSlot || !player) {
-    return;
+    dirtyPlayerSaves.delete(playerId);
+    return false;
   }
 
   saveGame(saveSlot, {
@@ -1544,6 +1552,30 @@ function savePlayerGame(playerId: string) {
     equipment: getEquipment(playerId),
     quests: [...(playerQuests.get(playerId)?.values() ?? [])]
   });
+  dirtyPlayerSaves.delete(playerId);
+  return true;
+}
+
+function savePlayerGame(playerId: string) {
+  if (!playerSaveSlots.has(playerId) || !players.has(playerId)) {
+    return;
+  }
+
+  dirtyPlayerSaves.add(playerId);
+}
+
+function flushPlayerGame(playerId: string) {
+  return persistPlayerGame(playerId);
+}
+
+function flushDirtyPlayerGames() {
+  for (const playerId of [...dirtyPlayerSaves]) {
+    try {
+      persistPlayerGame(playerId);
+    } catch (error) {
+      console.error(`Failed to flush save for player ${playerId}`, error);
+    }
+  }
 }
 
 // 廣播成本計數器:僅供 smoke:broadcast-budget 讀取(/debug/broadcast-stats),不影響遊戲邏輯。
@@ -3101,6 +3133,11 @@ wss.on("connection", (ws, request) => {
 
   ws.on("close", () => {
     savePlayerGame(playerId);
+    try {
+      flushPlayerGame(playerId);
+    } catch (error) {
+      console.error(`Failed to flush save for disconnected player ${playerId}`, error);
+    }
     sockets.delete(playerId);
     players.delete(playerId);
     inventories.delete(playerId);
@@ -3121,6 +3158,21 @@ wss.on("connection", (ws, request) => {
 });
 
 setInterval(tickWorld, 1000 / 15);
+setInterval(flushDirtyPlayerGames, saveFlushIntervalMs);
+
+function flushDirtyPlayerGamesBeforeExit() {
+  flushDirtyPlayerGames();
+}
+
+process.once("SIGINT", () => {
+  flushDirtyPlayerGamesBeforeExit();
+  process.exit(0);
+});
+
+process.once("SIGTERM", () => {
+  flushDirtyPlayerGamesBeforeExit();
+  process.exit(0);
+});
 
 httpServer.listen(port, () => {
   console.log(`Penglai Online server listening on ws://localhost:${port}`);
