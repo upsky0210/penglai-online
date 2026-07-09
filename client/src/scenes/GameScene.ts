@@ -1,4 +1,4 @@
-import Phaser from "phaser";
+﻿import Phaser from "phaser";
 import {
   CLASS_SKILL_IDS,
   DEFAULT_GAME_MAP,
@@ -19,12 +19,11 @@ import {
   type PlayerAnimation,
   type PlayerSnapshot,
   type QuestSnapshot,
-  type ServerMessage,
   type ShopDefinition,
   type SkillId
 } from "@penglai/shared";
 import { gameHeight, gameWidth, jumpSpeed, moveSpeed, normalAttackCooldownMs } from "../game/constants";
-import { authAllowMock, characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
+import { characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
 import { GameAudioManager } from "../game/audioManager";
 import {
   mapBackgroundLayers,
@@ -37,10 +36,41 @@ import {
   playerAnimationKeys,
   playerAnimationTextureKeys
 } from "../game/assetManifest";
+import {
+  characterClassOptions,
+  getCharacterClassOption,
+  getClassLabel,
+  getDefaultCharacterDraft,
+  isCharacterClass,
+  normalizeCharacterName,
+  readCharacterDraft,
+  writeCharacterDraft
+} from "../game/characterSetup";
 import { renderGoogleSignInButton } from "../game/googleIdentity";
+import {
+  chapterQuestIds,
+  getInteractableDoneLabel,
+  getInteractablePendingLabel,
+  getQuestTargetMapId,
+  getQuestTargetX,
+  isQuestUnlocked
+} from "../game/questGuidance";
 import { createUiPanel, type UiPanel } from "../game/uiPanel";
 import { ColorHex, ColorText, uiFont } from "../game/uiTheme";
 import type { ItemDropView, MonsterView } from "../game/viewTypes";
+import { GameSocket, getGameSocketUrl } from "../net/GameSocket";
+import {
+  formatSaveSlot,
+  generateSaveSlot,
+  getOrCreateSaveSlot,
+  normalizeSaveSlotCode,
+  persistCurrentSaveSlot,
+  persistPreviousSaveSlot,
+  persistSaveSlotPair,
+  readPreviousSaveSlot
+} from "../save/SaveSlotStore";
+import { FeedbackFormController, type FeedbackPayload } from "../ui/FeedbackForm";
+import { TitleScreenView } from "../ui/TitleScreenView";
 
 type KeyName =
   | "a"
@@ -102,27 +132,6 @@ interface AnnouncementNotice {
 }
 
 const maxPlayerMp = fallbackPlayerMp;
-const characterClassOptions: Array<{
-  className: CharacterClass;
-  label: string;
-  description: string;
-}> = [
-  {
-    className: "swordsman",
-    label: "劍士",
-    description: "生命 115 / 法力 36，技能：斬擊。"
-  },
-  {
-    className: "talisman",
-    label: "符咒師",
-    description: "生命 90 / 法力 60，技能：靈符彈。"
-  },
-  {
-    className: "hunter",
-    label: "獵人",
-    description: "生命 100 / 法力 42，技能：遠射。"
-  }
-];
 const emptyEquipment: EquipmentSnapshot = {
   weapon: null,
   armor: null
@@ -152,7 +161,7 @@ export class GameScene extends Phaser.Scene {
   private player?: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private facing: "left" | "right" = "right";
   private playerId = "";
-  private ws?: WebSocket;
+  private ws?: GameSocket;
   private remotePlayers = new Map<string, Phaser.GameObjects.Sprite>();
   private remotePlayerLastAnimation = new Map<string, PlayerAnimation>();
   private remoteAttackSoundReadyAt = 0;
@@ -228,9 +237,7 @@ export class GameScene extends Phaser.Scene {
   private authAccountLabel = "";
   private authSaveSlots: AuthSaveSlotSummary[] = [];
   private googleButtonElement?: HTMLDivElement;
-  private feedbackFormElement?: HTMLDivElement;
-  private feedbackSubmitReadyAt = 0;
-  private titleAuthText?: Phaser.GameObjects.Text;
+  private feedbackForm?: FeedbackFormController;
   private lastPlayerUpdateAt = 0;
   private localHp = 100;
   private localMp = maxPlayerMp;
@@ -241,10 +248,7 @@ export class GameScene extends Phaser.Scene {
   private skillReadyAt = 0;
   private attackReadyAt = 0;
   private gameStarted = false;
-  private titleOverlay?: Phaser.GameObjects.Container;
-  private titleSlotText?: Phaser.GameObjects.Text;
-  private titleCharacterText?: Phaser.GameObjects.Text;
-  private titleNoticeText?: Phaser.GameObjects.Text;
+  private titleScreen?: TitleScreenView;
   private characterName = "霧港旅人";
   private selectedClass: CharacterClass = "swordsman";
   private localPlayerName = "霧港旅人";
@@ -306,6 +310,16 @@ export class GameScene extends Phaser.Scene {
       three: Phaser.Input.Keyboard.KeyCodes.THREE
     }) as Record<KeyName, Phaser.Input.Keyboard.Key>;
     this.input.keyboard?.on("keydown", this.handleTitleNameKeyDown, this);
+    this.feedbackForm = new FeedbackFormController({
+      setKeyboardEnabled: (enabled) => {
+        if (this.input.keyboard) {
+          this.input.keyboard.enabled = enabled;
+        }
+      },
+      getGameContext: () => this.getFeedbackGameContext(),
+      submit: (payload) => this.submitFeedback(payload),
+      onNotice: (text) => this.showToast(text)
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.off("keydown", this.handleTitleNameKeyDown, this);
       this.removeGoogleButton();
@@ -316,123 +330,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addTitleScreen() {
-    const overlay = this.add.container(0, 0).setScrollFactor(0).setDepth(300);
-    const shade = this.add.rectangle(0, 0, gameWidth, gameHeight, ColorHex.inkGreenShade, 0.82).setOrigin(0);
-    const woodFrame = this.add.rectangle(gameWidth / 2, gameHeight / 2 + 3, 624, 374, ColorHex.woodDark, 0.96);
-    const frame = this.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, ColorHex.inkGreenDeep, 0.97);
-    const border = this.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, 0x000000, 0);
-    const header = this.add.rectangle(gameWidth / 2, gameHeight / 2 - 150, 610, 60, ColorHex.deepTeal, 0.99);
-    const accent = this.add.rectangle(gameWidth / 2, gameHeight / 2 - 119, 610, 3, ColorHex.gold, 0.92);
-    const seal = this.add.rectangle(gameWidth / 2 - 250, gameHeight / 2 - 150, 22, 22, ColorHex.vermilion, 1);
-    seal.setStrokeStyle(1, ColorHex.gold, 0.9);
-    const title = this.add
-      .text(gameWidth / 2, gameHeight / 2 - 158, "蓬萊異聞錄 Online", {
-        fontFamily: uiFont,
-        fontSize: "30px",
-        color: ColorText.gold,
-        stroke: ColorText.ink,
-        strokeThickness: 4
-      })
-      .setOrigin(0.5);
-    const subtitle = this.add
-      .text(gameWidth / 2, gameHeight / 2 - 104, "霧港試煉場", {
-        fontFamily: uiFont,
-        fontSize: "16px",
-        color: ColorText.sand
-      })
-      .setOrigin(0.5);
-    this.titleSlotText = this.add
-      .text(gameWidth / 2 - 245, gameHeight / 2 - 58, "", {
-        fontSize: "15px",
-        color: "#f2efe6",
-        fixedWidth: 490,
-        lineSpacing: 8,
-        wordWrap: { width: 490 }
-      })
-      .setOrigin(0, 0);
-    this.titleCharacterText = this.add
-      .text(gameWidth / 2 - 245, gameHeight / 2 - 4, "", {
-        fontSize: "15px",
-        color: "#f6ead2",
-        fixedWidth: 490,
-        lineSpacing: 7,
-        wordWrap: { width: 490 }
-      })
-      .setOrigin(0, 0);
-    const controls = this.add
-      .text(
-        gameWidth / 2 - 245,
-        gameHeight / 2 + 78,
-        [
-          "Enter 進入遊戲",
-          "← / → 切換職業 | N 切換預設名稱",
-          "直接輸入英文/數字改名 | Backspace 刪字",
-          "R 新存檔 | L 上一個存檔 | Y 複製代碼 | G 登出",
-          "1/2/3 切換帳號存檔（登入後）"
-        ].join("\n"),
-        {
-          fontSize: "14px",
-          color: "#d8cfae",
-          fixedWidth: 490,
-          lineSpacing: 7
-        }
-      )
-      .setOrigin(0, 0);
-    this.titleNoticeText = this.add
-      .text(gameWidth / 2, gameHeight / 2 + 152, "", {
-        fontSize: "14px",
-        color: "#91f0a5",
-        fixedWidth: 520,
-        align: "center"
-      })
-      .setOrigin(0.5);
-    this.titleAuthText = this.add
-      .text(gameWidth / 2, gameHeight / 2 + 128, "", {
-        fontSize: "13px",
-        color: "#d8cfae",
-        fixedWidth: 520,
-        align: "center"
-      })
-      .setOrigin(0.5);
-
-    border.setStrokeStyle(2, ColorHex.gold, 0.62);
-    overlay.add([
-      shade,
-      woodFrame,
-      frame,
-      border,
-      header,
-      accent,
-      seal,
-      title,
-      subtitle,
-      this.titleSlotText,
-      this.titleCharacterText,
-      controls,
-      this.titleAuthText,
-      this.titleNoticeText
-    ]);
-    if (authAllowMock) {
-      overlay.add(this.createMockLoginButton());
-    }
-    this.titleOverlay = overlay;
+    this.titleScreen = new TitleScreenView(this, {
+      onMockLogin: () => this.promptMockLogin()
+    });
     this.updateTitleScreen();
     void this.mountGoogleButton();
     void this.refreshAuthSession();
-  }
-
-  private createMockLoginButton(): Phaser.GameObjects.Text {
-    const button = this.add
-      .text(gameWidth / 2, gameHeight / 2 + 184, "▶ 測試登入（輸入 Email）", {
-        fontSize: "13px",
-        color: "#ffd76a",
-        backgroundColor: "#1c3b2e",
-        padding: { x: 12, y: 6 }
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    button.on("pointerdown", () => this.promptMockLogin());
-    return button;
   }
 
   private promptMockLogin() {
@@ -456,53 +359,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateTitleScreen() {
-    if (!this.titleSlotText) {
+    if (!this.titleScreen) {
       return;
     }
 
     const previous = this.previousSaveSlot || this.getPreviousSaveSlot();
-    this.titleSlotText.setText(
-      [
-        `目前存檔：${this.formatSaveSlot(this.currentSaveSlot || this.getSaveSlot())}`,
-        `上一個存檔：${previous ? this.formatSaveSlot(previous) : "無"}`,
-        ...this.getAccountSaveSlotLines(2)
-      ].join("\n")
-    );
-
     const option = this.getSelectedClassOption();
-    this.titleCharacterText?.setText(
-      [
-        `角色名稱：${this.characterName}`,
-        `職業：${option.label}`,
-        option.description,
-        "進入遊戲後會寫入 SQLite 角色資料。"
-      ].join("\n")
-    );
-    this.titleAuthText?.setText(
-      this.authSessionId
-        ? `已登入：學校 Google 帳號（${this.authAccountLabel || "已登入"}），存檔會綁定帳號。`
-        : googleClientId
-          ? "登入：點下方的 Google 按鈕，用學校帳號登入後綁定存檔。"
-          : authAllowMock
-            ? "登入（測試）：點下方「測試登入」輸入 Email 即可體驗帳號存檔。"
-            : "登入尚未開放，目前使用本機存檔。請按 P → Y 複製存檔碼備份。"
-    );
+    this.titleScreen.update({
+      currentSaveSlot: formatSaveSlot(this.currentSaveSlot || this.getSaveSlot()),
+      previousSaveSlot: previous ? formatSaveSlot(previous) : "",
+      accountSaveSlotLines: this.getAccountSaveSlotLines(2),
+      characterName: this.characterName,
+      classLabel: option.label,
+      classDescription: option.description,
+      authAccountLabel: this.authAccountLabel,
+      isAuthenticated: Boolean(this.authSessionId)
+    });
   }
 
   private showTitleNotice(text: string) {
-    if (!this.titleNoticeText) {
-      return;
-    }
-
-    this.titleNoticeText.setText(text);
-    this.titleNoticeText.setAlpha(1);
-    this.tweens.killTweensOf(this.titleNoticeText);
-    this.tweens.add({
-      targets: this.titleNoticeText,
-      alpha: 0,
-      delay: 2200,
-      duration: 360
-    });
+    this.titleScreen?.showNotice(text);
   }
 
   private async mountGoogleButton() {
@@ -553,195 +429,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   private toggleFeedbackForm() {
-    if (this.feedbackFormElement) {
-      this.removeFeedbackForm();
-      return;
-    }
-
-    this.showFeedbackForm();
-  }
-
-  private showFeedbackForm() {
-    this.removeFeedbackForm();
-    const overlay = document.createElement("div");
-    overlay.className = "feedback-overlay";
-    overlay.innerHTML = `
-      <form class="feedback-form">
-        <header>
-          <div>
-            <p>Beta 測試回饋</p>
-            <h2>霧港試煉體驗紀錄</h2>
-          </div>
-          <button type="button" data-feedback-close aria-label="關閉回饋表單">×</button>
-        </header>
-        <label>
-          <span>姓名或代號</span>
-          <input name="testerName" type="text" maxlength="40" required />
-        </label>
-        <label>
-          <span>學校</span>
-          <input name="schoolName" type="text" maxlength="60" placeholder="可填學校名稱或測試場次" />
-        </label>
-        <label>
-          <span>班級 / 組別</span>
-          <input name="classGroup" type="text" maxlength="40" required />
-        </label>
-        <label>
-          <span>回饋分類</span>
-          <select name="feedbackCategory">
-            <option value="bug">Bug / 錯誤</option>
-            <option value="navigation">找不到路 / 任務不清楚</option>
-            <option value="balance">太難 / 太簡單</option>
-            <option value="ui">介面 / 文字</option>
-            <option value="performance">卡頓 / 連線</option>
-            <option value="content">希望新增內容</option>
-            <option value="other" selected>其他</option>
-          </select>
-        </label>
-        <label>
-          <span>測試裝置</span>
-          <select name="deviceType">
-            <option value="desktop" selected>桌機</option>
-            <option value="laptop">筆電</option>
-            <option value="tablet">平板</option>
-            <option value="mobile">手機</option>
-            <option value="unknown">不確定</option>
-          </select>
-        </label>
-        <label>
-          <span>難度 1-5</span>
-          <select name="difficulty">
-            <option value="1">1 很簡單</option>
-            <option value="2">2 偏簡單</option>
-            <option value="3" selected>3 剛好</option>
-            <option value="4">4 偏難</option>
-            <option value="5">5 太難</option>
-          </select>
-        </label>
-        <label>
-          <span>卡關點</span>
-          <textarea name="stuckPoint" maxlength="160" required placeholder="例如：找不到海霧堤道、Boss 太痛、平台跳不上去"></textarea>
-        </label>
-        <label>
-          <span>建議</span>
-          <textarea name="suggestion" maxlength="360" required placeholder="例如：希望提示更明顯、怪物少一點、加更多任務"></textarea>
-        </label>
-        <label class="feedback-inline">
-          <input name="contactAllowed" type="checkbox" value="true" />
-          <span>老師可以根據這則回饋再詢問我</span>
-        </label>
-        <footer>
-          <span>Esc 或 T 關閉，送出後老師可在管理面板查看。</span>
-          <button type="submit">送出回饋</button>
-        </footer>
-      </form>
-    `;
-    document.body.appendChild(overlay);
-    this.feedbackFormElement = overlay;
-    this.input.keyboard!.enabled = false;
-
-    const testerInput = overlay.querySelector<HTMLInputElement>('input[name="testerName"]');
-    const schoolInput = overlay.querySelector<HTMLInputElement>('input[name="schoolName"]');
-    const classInput = overlay.querySelector<HTMLInputElement>('input[name="classGroup"]');
-    try {
-      testerInput!.value = window.localStorage.getItem("penglai-feedback-tester") ?? "";
-      schoolInput!.value = window.localStorage.getItem("penglai-feedback-school") ?? "";
-      classInput!.value = window.localStorage.getItem("penglai-feedback-class") ?? "";
-    } catch {
-      // Feedback can still be submitted without remembering defaults.
-    }
-    testerInput?.focus();
-
-    overlay.addEventListener("keydown", (event) => {
-      event.stopPropagation();
-      if (event.key === "Escape" || (event.key.toLowerCase() === "t" && event.target === overlay)) {
-        this.removeFeedbackForm();
-      }
-    });
-    overlay.querySelector<HTMLButtonElement>("[data-feedback-close]")?.addEventListener("click", () => {
-      this.removeFeedbackForm();
-    });
-    overlay.querySelector<HTMLFormElement>("form")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      if (event.currentTarget instanceof HTMLFormElement) {
-        void this.submitFeedbackForm(event.currentTarget);
-      }
-    });
+    this.feedbackForm?.toggle();
   }
 
   private removeFeedbackForm() {
-    if (!this.feedbackFormElement) {
-      return;
-    }
-
-    this.feedbackFormElement.remove();
-    this.feedbackFormElement = undefined;
-    if (this.input.keyboard) {
-      this.input.keyboard.enabled = true;
-    }
+    this.feedbackForm?.close();
   }
 
-  private async submitFeedbackForm(form: HTMLFormElement) {
-    const now = Date.now();
-    if (now < this.feedbackSubmitReadyAt) {
-      return;
-    }
+  private getFeedbackGameContext() {
+    const activeQuest = this.getGuidedQuest();
+    return {
+      playerName: this.localPlayerName || this.characterName,
+      saveSlot: this.currentSaveSlot || this.getSaveSlot(),
+      sessionId: this.authSessionId || this.getAuthSessionId(),
+      mapId: this.currentMapId,
+      currentZone: this.getCurrentZoneName(this.player?.x ?? 0, this.player?.y ?? 0).name,
+      activeQuest: activeQuest ? this.formatQuestLine(activeQuest) : "無進行中任務",
+      chapterProgress: `${this.getChapterStepSummary()} / ${this.getChapterChecklist()}`
+    };
+  }
 
-    this.feedbackSubmitReadyAt = now + 1200;
-    const formData = new FormData(form);
-    const testerName = String(formData.get("testerName") ?? "").trim();
-    const schoolName = String(formData.get("schoolName") ?? "").trim();
-    const classGroup = String(formData.get("classGroup") ?? "").trim();
-    const stuckPoint = String(formData.get("stuckPoint") ?? "").trim();
-    const suggestion = String(formData.get("suggestion") ?? "").trim();
-    if (!testerName || !classGroup || !stuckPoint || !suggestion) {
-      this.showToast("請填完姓名、班級、卡關點與建議。");
-      return;
-    }
-
-    const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
-    submitButton!.disabled = true;
-    submitButton!.textContent = "送出中...";
-    try {
-      const response = await fetch(this.getApiUrl("/feedback"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          testerName,
-          schoolName,
-          classGroup,
-          feedbackCategory: String(formData.get("feedbackCategory") ?? "other"),
-          deviceType: String(formData.get("deviceType") ?? "unknown"),
-          difficulty: Number(formData.get("difficulty") ?? 3),
-          stuckPoint,
-          suggestion,
-          contactAllowed: formData.get("contactAllowed") === "true",
-          playerName: this.localPlayerName || this.characterName,
-          saveSlot: this.currentSaveSlot || this.getSaveSlot(),
-          sessionId: this.authSessionId || this.getAuthSessionId(),
-          mapId: this.currentMapId,
-          currentZone: this.getCurrentZoneName(this.player?.x ?? 0, this.player?.y ?? 0).name,
-          activeQuest: this.getGuidedQuest() ? this.formatQuestLine(this.getGuidedQuest()!) : "無進行中任務",
-          chapterProgress: `${this.getChapterStepSummary()} / ${this.getChapterChecklist()}`
-        })
-      });
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      try {
-        window.localStorage.setItem("penglai-feedback-tester", testerName);
-        window.localStorage.setItem("penglai-feedback-school", schoolName);
-        window.localStorage.setItem("penglai-feedback-class", classGroup);
-      } catch {
-        // Remembering local form defaults is optional.
-      }
-      this.removeFeedbackForm();
-      this.showToast("回饋已送出，謝謝測試。");
-    } catch {
-      this.showToast("回饋送出失敗，請確認伺服器連線。");
-      submitButton!.disabled = false;
-      submitButton!.textContent = "送出回饋";
+  private async submitFeedback(payload: FeedbackPayload) {
+    const response = await fetch(this.getApiUrl("/feedback"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
   }
 
@@ -896,7 +611,7 @@ export class GameScene extends Phaser.Scene {
 
     this.setSaveSlot(slot.saveSlot, true);
     this.loadCharacterDraft();
-    this.restartForSaveSlot(`已切換到帳號存檔 ${index + 1}：${this.formatSaveSlot(slot.saveSlot)}。`);
+    this.restartForSaveSlot(`已切換到帳號存檔 ${index + 1}：${formatSaveSlot(slot.saveSlot)}。`);
   }
 
   private getAccountSaveSlotLines(limit: number) {
@@ -911,7 +626,7 @@ export class GameScene extends Phaser.Scene {
     return this.authSaveSlots.slice(0, limit).map((slot, index) => {
       const name = slot.characterName || "未命名角色";
       const level = slot.level ? ` Lv.${slot.level}` : "";
-      return `${index + 1}. ${name}${level} / ${this.formatSaveSlot(slot.saveSlot)}`;
+      return `${index + 1}. ${name}${level} / ${formatSaveSlot(slot.saveSlot)}`;
     });
   }
 
@@ -989,15 +704,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setCharacterName(name: string) {
-    this.characterName = this.normalizeCharacterName(name);
+    this.characterName = normalizeCharacterName(name);
     this.localPlayerName = this.characterName;
     this.saveCharacterDraft();
     this.updateTitleScreen();
-  }
-
-  private normalizeCharacterName(name: string) {
-    const normalized = Array.from(name.trim().replace(/\s+/g, "")).slice(0, 12).join("");
-    return normalized || "旅人";
   }
 
   private cyclePresetName() {
@@ -1018,11 +728,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getSelectedClassOption() {
-    return characterClassOptions.find((option) => option.className === this.selectedClass) ?? characterClassOptions[0];
+    return getCharacterClassOption(this.selectedClass);
   }
 
   private getClassLabel(className: CharacterClass) {
-    return characterClassOptions.find((option) => option.className === className)?.label ?? "劍士";
+    return getClassLabel(className);
   }
 
   private getPrimarySkill() {
@@ -1034,49 +744,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   private isCharacterClass(value: unknown): value is CharacterClass {
-    return characterClassOptions.some((option) => option.className === value);
-  }
-
-  private getCharacterDrafts() {
-    try {
-      return JSON.parse(window.localStorage.getItem(clientStorageKeys.characterDrafts) ?? "{}") as Record<
-        string,
-        {
-          name?: string;
-          className?: CharacterClass;
-        }
-      >;
-    } catch {
-      return {};
-    }
+    return isCharacterClass(value);
   }
 
   private loadCharacterDraft() {
     const saveSlot = this.currentSaveSlot || this.getSaveSlot();
-    const draft = this.getCharacterDrafts()[saveSlot];
-    this.characterName = this.normalizeCharacterName(draft?.name ?? characterNamePresets[0]);
-    this.selectedClass = this.isCharacterClass(draft?.className) ? draft.className : "swordsman";
+    const draft = readCharacterDraft(saveSlot);
+    this.characterName = draft.name;
+    this.selectedClass = draft.className;
     this.localPlayerName = this.characterName;
     this.localClassName = this.selectedClass;
   }
 
   private saveCharacterDraft() {
     const saveSlot = this.currentSaveSlot || this.getSaveSlot();
-    try {
-      const drafts = this.getCharacterDrafts();
-      drafts[saveSlot] = {
-        name: this.characterName,
-        className: this.selectedClass
-      };
-      window.localStorage.setItem(clientStorageKeys.characterDrafts, JSON.stringify(drafts));
-    } catch {
-      // localStorage can be unavailable; the active session still keeps the selected character data in memory.
-    }
+    writeCharacterDraft(saveSlot, {
+      name: this.characterName,
+      className: this.selectedClass
+    });
   }
 
   private resetCharacterDraftForSlot() {
-    this.characterName = characterNamePresets[0];
-    this.selectedClass = "swordsman";
+    const draft = getDefaultCharacterDraft();
+    this.characterName = draft.name;
+    this.selectedClass = draft.className;
     this.localPlayerName = this.characterName;
     this.localClassName = this.selectedClass;
     this.saveCharacterDraft();
@@ -1088,18 +779,14 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.characterName = this.normalizeCharacterName(this.characterName);
+    this.characterName = normalizeCharacterName(this.characterName);
     this.localPlayerName = this.characterName;
     this.localClassName = this.selectedClass;
     this.saveCharacterDraft();
     this.removeGoogleButton();
     this.gameStarted = true;
-    this.titleOverlay?.destroy(true);
-    this.titleOverlay = undefined;
-    this.titleSlotText = undefined;
-    this.titleCharacterText = undefined;
-    this.titleAuthText = undefined;
-    this.titleNoticeText = undefined;
+    this.titleScreen?.destroy();
+    this.titleScreen = undefined;
 
     this.addHud();
     this.addPlayer();
@@ -2542,20 +2229,15 @@ export class GameScene extends Phaser.Scene {
 
   private connect() {
     const wsUrl = this.getWsUrl();
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.addEventListener("open", () => {
-      this.statusText?.setText(`已連線 | 存檔 ${this.formatSaveSlot(this.currentSaveSlot)}`);
-    });
-
-    this.ws.addEventListener("error", () => {
-      this.statusText?.setText("連線失敗，請確認伺服器是否啟動");
-      this.showToast("連線失敗，請確認伺服器或網路。");
-    });
-
-    this.ws.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data.toString()) as ServerMessage;
-
+    this.ws = new GameSocket(wsUrl, {
+      onOpen: () => {
+        this.statusText?.setText(`已連線 | 存檔 ${formatSaveSlot(this.currentSaveSlot)}`);
+      },
+      onError: () => {
+        this.statusText?.setText("連線失敗，請確認伺服器是否啟動");
+        this.showToast("連線失敗，請確認伺服器或網路。");
+      },
+      onMessage: (message) => {
       if (message.type === "session:welcome") {
         this.playerId = message.playerId;
         if (this.authSessionId && !message.authenticated) {
@@ -2563,12 +2245,12 @@ export class GameScene extends Phaser.Scene {
         }
         if (message.saveSlot) {
           this.currentSaveSlot = message.saveSlot;
-          this.persistCurrentSaveSlot(message.saveSlot);
+          persistCurrentSaveSlot(message.saveSlot);
           this.updateSavePanel();
           this.statusText?.setText(
             message.authenticated
-              ? `已連線 | Google | 存檔 ${this.formatSaveSlot(message.saveSlot)}`
-              : `已連線 | 存檔 ${this.formatSaveSlot(message.saveSlot)}`
+              ? `已連線 | Google | 存檔 ${formatSaveSlot(message.saveSlot)}`
+              : `已連線 | 存檔 ${formatSaveSlot(message.saveSlot)}`
           );
         }
         return;
@@ -2719,11 +2401,11 @@ export class GameScene extends Phaser.Scene {
         });
         this.showDialogue(`教師公告：${message.text}`);
       }
-    });
-
-    this.ws.addEventListener("close", () => {
-      this.statusText?.setText("伺服器連線中斷");
-      this.showToast("伺服器連線中斷，請重新整理或重新啟動伺服器。");
+      },
+      onClose: () => {
+        this.statusText?.setText("伺服器連線中斷");
+        this.showToast("伺服器連線中斷，請重新整理或重新啟動伺服器。");
+      }
     });
   }
 
@@ -2736,13 +2418,7 @@ export class GameScene extends Phaser.Scene {
       params.set("session", sessionId);
     }
     const query = `?${params.toString()}`;
-    const host = window.location.hostname;
-    if (isDevFrontend()) {
-      return `ws://${host}:8787${query}`;
-    }
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/ws${query}`;
+    return getGameSocketUrl(query);
   }
 
   private getAuthUrl() {
@@ -2825,41 +2501,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getSaveSlot() {
-    try {
-      const existing = window.localStorage.getItem(clientStorageKeys.saveSlot);
-      if (existing) {
-        this.currentSaveSlot = existing;
-        return existing;
-      }
-
-      const nextSlot = this.generateSaveSlot();
-      window.localStorage.setItem(clientStorageKeys.saveSlot, nextSlot);
-      this.currentSaveSlot = nextSlot;
-      return nextSlot;
-    } catch {
-      this.currentSaveSlot = "browser-fallback-slot";
-      return "browser-fallback-slot";
-    }
+    const saveSlot = getOrCreateSaveSlot();
+    this.currentSaveSlot = saveSlot;
+    return saveSlot;
   }
 
   private getPreviousSaveSlot() {
-    try {
-      return window.localStorage.getItem(clientStorageKeys.previousSaveSlot) ?? "";
-    } catch {
-      return "";
-    }
-  }
-
-  private generateSaveSlot() {
-    return window.crypto?.randomUUID?.() ?? `slot-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  private persistCurrentSaveSlot(saveSlot: string) {
-    try {
-      window.localStorage.setItem(clientStorageKeys.saveSlot, saveSlot);
-    } catch {
-      // localStorage can be unavailable in privacy modes; the in-memory slot still works for this session.
-    }
+    return readPreviousSaveSlot();
   }
 
   private setSaveSlot(nextSaveSlot: string, rememberPrevious: boolean) {
@@ -2869,25 +2517,17 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.currentSaveSlot = nextSaveSlot;
-
-    try {
-      window.localStorage.setItem(clientStorageKeys.saveSlot, nextSaveSlot);
-      if (this.previousSaveSlot) {
-        window.localStorage.setItem(clientStorageKeys.previousSaveSlot, this.previousSaveSlot);
-      }
-    } catch {
-      // The game can continue with an in-memory save slot if browser storage is blocked.
-    }
+    persistSaveSlotPair(nextSaveSlot, this.previousSaveSlot);
 
     this.updateSavePanel();
     this.updateTitleScreen();
   }
 
   private createNewSaveSlot() {
-    const nextSlot = this.generateSaveSlot();
+    const nextSlot = generateSaveSlot();
     this.setSaveSlot(nextSlot, true);
     this.resetCharacterDraftForSlot();
-    this.restartForSaveSlot(`已建立新存檔：${this.formatSaveSlot(nextSlot)}。`);
+    this.restartForSaveSlot(`已建立新存檔：${formatSaveSlot(nextSlot)}。`);
   }
 
   private loadPreviousSaveSlot() {
@@ -2903,13 +2543,9 @@ export class GameScene extends Phaser.Scene {
     this.loadCharacterDraft();
     this.updateTitleScreen();
 
-    try {
-      window.localStorage.setItem(clientStorageKeys.previousSaveSlot, current);
-    } catch {
-      // Keep the swap in memory if browser storage is blocked.
-    }
+    persistPreviousSaveSlot(current);
 
-    this.restartForSaveSlot(`已載入存檔：${this.formatSaveSlot(previous)}。`);
+    this.restartForSaveSlot(`已載入存檔：${formatSaveSlot(previous)}。`);
   }
 
   private restartForSaveSlot(message: string) {
@@ -2948,12 +2584,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private normalizeSaveSlotCode(raw: string) {
-    // Match the server's normalizeSaveSlot rules so an imported code is used verbatim.
-    const normalized = raw.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
-    return normalized.length >= 8 ? normalized : "";
-  }
-
   private importSaveSlotFromCode() {
     const raw = window.prompt(
       "貼上先前用「Y 複製」取得的存檔代碼，即可在這個瀏覽器或裝置還原存檔：",
@@ -2963,7 +2593,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const code = this.normalizeSaveSlotCode(raw);
+    const code = normalizeSaveSlotCode(raw);
     if (!code) {
       this.showSaveMessage("存檔代碼格式不正確（需 8 碼以上英數字或 - _）。");
       return;
@@ -2978,7 +2608,7 @@ export class GameScene extends Phaser.Scene {
     this.setSaveSlot(code, true);
     this.loadCharacterDraft();
     this.updateTitleScreen();
-    this.restartForSaveSlot(`已匯入存檔：${this.formatSaveSlot(code)}。`);
+    this.restartForSaveSlot(`已匯入存檔：${formatSaveSlot(code)}。`);
   }
 
   private updateSavePanel() {
@@ -3001,13 +2631,13 @@ export class GameScene extends Phaser.Scene {
             .map((slot) => {
               const name = slot.characterName ? `${slot.characterName}` : "未命名角色";
               const level = slot.level ? ` Lv.${slot.level}` : "";
-              return `- ${name}${level} / ${this.formatSaveSlot(slot.saveSlot)}`;
+              return `- ${name}${level} / ${formatSaveSlot(slot.saveSlot)}`;
             })
         : ["- 尚無帳號存檔摘要"];
     this.savePanel.body.setText(
       [
-        `目前：${this.formatSaveSlot(saveSlot)}`,
-        `上一個：${previous ? this.formatSaveSlot(previous) : "無"}`,
+        `目前：${formatSaveSlot(saveSlot)}`,
+        `上一個：${previous ? formatSaveSlot(previous) : "無"}`,
         accountLine,
         accountHint,
         ...accountSlots,
@@ -3016,14 +2646,6 @@ export class GameScene extends Phaser.Scene {
         "Y 複製存檔碼 | X 匯入存檔碼 | G 登出"
       ].join("\n")
     );
-  }
-
-  private formatSaveSlot(saveSlot: string) {
-    if (saveSlot.length <= 12) {
-      return saveSlot;
-    }
-
-    return `${saveSlot.slice(0, 8)}...${saveSlot.slice(-4)}`;
   }
 
   private applySnapshot(players: PlayerSnapshot[], monsters: MonsterSnapshot[], itemDrops: ItemDropSnapshot[]) {
@@ -3398,21 +3020,19 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.lastPlayerUpdateAt = now;
-    this.ws.send(
-      JSON.stringify({
-        type: "player:update",
-        player: {
-          id: this.playerId,
-          name: this.characterName,
-          className: this.selectedClass,
-          mapId: this.currentMapId,
-          x: Math.round(this.player.x),
-          y: Math.round(this.player.y),
-          facing: this.facing,
-          animation
-        }
-      })
-    );
+    this.ws.send({
+      type: "player:update",
+      player: {
+        id: this.playerId,
+        name: this.characterName,
+        className: this.selectedClass,
+        mapId: this.currentMapId,
+        x: Math.round(this.player.x),
+        y: Math.round(this.player.y),
+        facing: this.facing,
+        animation
+      }
+    });
   }
 
   private sendAttack(isSkill: boolean) {
@@ -3421,14 +3041,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     const primarySkill = this.getPrimarySkill();
-    this.ws.send(
-      JSON.stringify({
-        type: "combat:attack",
-        attackId: `${this.playerId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        isSkill,
-        skillId: isSkill ? primarySkill.id : undefined
-      })
-    );
+    this.ws.send({
+      type: "combat:attack",
+      attackId: `${this.playerId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      isSkill,
+      skillId: isSkill ? primarySkill.id : undefined
+    });
   }
 
   private sendNpcInteract(npcId: string) {
@@ -3436,12 +3054,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "npc:interact",
-        npcId
-      })
-    );
+    this.ws.send({
+      type: "npc:interact",
+      npcId
+    });
   }
 
   private sendMapInteract(interactableId: string) {
@@ -3449,12 +3065,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "map:interact",
-        interactableId
-      })
-    );
+    this.ws.send({
+      type: "map:interact",
+      interactableId
+    });
   }
 
   private sendPortalEnter(portalId: string) {
@@ -3469,12 +3083,10 @@ export class GameScene extends Phaser.Scene {
     }
     this.portalReadyAt = now + 900;
 
-    this.ws.send(
-      JSON.stringify({
-        type: "portal:enter",
-        portalId
-      })
-    );
+    this.ws.send({
+      type: "portal:enter",
+      portalId
+    });
   }
 
   private confirmReturnSafe() {
@@ -3496,11 +3108,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "player:return-safe"
-      })
-    );
+    this.ws.send({
+      type: "player:return-safe"
+    });
     this.showToast("正在返回安全區...");
   }
 
@@ -3509,12 +3119,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "item:pickup",
-        dropId
-      })
-    );
+    this.ws.send({
+      type: "item:pickup",
+      dropId
+    });
   }
 
   private tryAutoPickupDrop(dropId: string) {
@@ -3595,12 +3203,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "inventory:use",
-        itemId
-      })
-    );
+    this.ws.send({
+      type: "inventory:use",
+      itemId
+    });
   }
 
   private sendEquipItem(itemId: ItemId) {
@@ -3608,12 +3214,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "inventory:equip",
-        itemId
-      })
-    );
+    this.ws.send({
+      type: "inventory:equip",
+      itemId
+    });
   }
 
   private sendShopBuy(npcId: string, itemId: ItemId, quantity: number) {
@@ -3621,14 +3225,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.ws.send(
-      JSON.stringify({
-        type: "shop:buy",
-        npcId,
-        itemId,
-        quantity
-      })
-    );
+    this.ws.send({
+      type: "shop:buy",
+      npcId,
+      itemId,
+      quantity
+    });
   }
 
   private getAnimation(isMoving: boolean): PlayerAnimation {
@@ -4111,59 +3713,19 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (quest.status === "completed") {
-      return { label: this.getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
+      return { label: getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
     }
 
     const interacted = quest.interactedTargetIds?.includes(interactable.id) ?? false;
     if (interacted) {
-      return { label: this.getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
+      return { label: getInteractableDoneLabel(interactable), color: ColorText.jade, done: true };
     }
 
     if (quest.status === "ready") {
       return { label: "可回報", color: ColorText.gold, done: true };
     }
 
-    return { label: this.getInteractablePendingLabel(interactable), color: ColorText.danger, done: false };
-  }
-
-  private getInteractableDoneLabel(interactable: MapInteractableData) {
-    if (interactable.kind === "lantern") {
-      return "已修復";
-    }
-
-    if (interactable.kind === "seal") {
-      return "已啟動";
-    }
-
-    if (interactable.kind === "tablet") {
-      return "已校準";
-    }
-
-    if (interactable.kind === "lens") {
-      return "已校準";
-    }
-
-    return "已調查";
-  }
-
-  private getInteractablePendingLabel(interactable: MapInteractableData) {
-    if (interactable.kind === "lantern") {
-      return "待修復";
-    }
-
-    if (interactable.kind === "seal") {
-      return "待啟動";
-    }
-
-    if (interactable.kind === "tablet") {
-      return "待校準";
-    }
-
-    if (interactable.kind === "lens") {
-      return "待校準";
-    }
-
-    return "待調查";
+    return { label: getInteractablePendingLabel(interactable), color: ColorText.danger, done: false };
   }
 
   private getInteractableQuest(interactable: MapInteractableData) {
@@ -4287,7 +3849,7 @@ export class GameScene extends Phaser.Scene {
 
     const allQuestLines = [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .filter((quest) => quest.status !== "available" || this.isQuestUnlocked(quest))
+      .filter((quest) => quest.status !== "available" || isQuestUnlocked(quest, this.quests))
       .map((quest) => `${this.formatQuestLine(quest)}${this.getQuestDirectionHint(quest)}`);
     const questLines = allQuestLines.slice(0, 4);
     const hiddenQuestCount = allQuestLines.length - questLines.length;
@@ -4317,7 +3879,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getQuestStatusLabel(quest: QuestSnapshot) {
-    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+    if (quest.status === "available" && !isQuestUnlocked(quest, this.quests)) {
       return "[鎖定]";
     }
 
@@ -4416,9 +3978,9 @@ export class GameScene extends Phaser.Scene {
       return "任務同步中";
     }
 
-    const steps = this.getChapterQuestIds().map((questId) => this.quests.get(questId));
+    const steps = chapterQuestIds.map((questId) => this.quests.get(questId));
     const completed = steps.filter((quest) => quest?.status === "completed").length;
-    const active = steps.find((quest) => quest && quest.status !== "completed" && this.isQuestUnlocked(quest));
+    const active = steps.find((quest) => quest && quest.status !== "completed" && isQuestUnlocked(quest, this.quests));
 
     if (!active) {
       return completed >= steps.length ? "目前內容完成" : "下一階段尚未解鎖";
@@ -4428,47 +3990,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getChapterChecklist() {
-    return this.getChapterQuestIds()
+    return chapterQuestIds
       .map((questId, index) => {
         const quest = this.quests.get(questId);
         if (quest?.status === "completed") {
           return `${index + 1}✓`;
         }
-        return quest && this.isQuestUnlocked(quest) ? `${index + 1}-` : `${index + 1}鎖`;
+        return quest && isQuestUnlocked(quest, this.quests) ? `${index + 1}-` : `${index + 1}鎖`;
       })
       .join(" ");
-  }
-
-  private getChapterQuestIds() {
-    return [
-      "field-rat-cleanup",
-      "rat-tail-salve",
-      "mist-gel-lantern",
-      "breakwater-scout",
-      "breakwater-lantern-repair",
-      "tide-watcher-core",
-      "watcher-shell-report",
-      "tide-gauge-survey",
-      "warehouse-rat-cleanup",
-      "damp-wood-sample",
-      "mist-puppet-clear",
-      "warehouse-sentry-core",
-      "cavern-crab-clear",
-      "reef-spark-sample",
-      "reef-seal-activate",
-      "coral-warden-core",
-      "coral-key-report",
-      "archive-drifter-clear",
-      "ink-core-sample",
-      "archive-tablet-align",
-      "archive-guardian-core",
-      "archive-seal-report",
-      "star-moth-clear",
-      "lens-core-sample",
-      "observatory-lens-align",
-      "astral-keeper-core",
-      "astral-seal-report"
-    ];
   }
 
   private getRouteHint() {
@@ -4478,7 +4008,7 @@ export class GameScene extends Phaser.Scene {
 
     const activeQuest = [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .find((quest) => quest.status !== "completed" && this.isQuestUnlocked(quest));
+      .find((quest) => quest.status !== "completed" && isQuestUnlocked(quest, this.quests));
     if (activeQuest) {
       const hint = this.getQuestDirectionHint(activeQuest);
       return `下一步：${this.formatQuestLine(activeQuest)}${hint}${this.getSafeReturnHint()}`;
@@ -4503,7 +4033,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const targetMapId = this.getQuestTargetMapId(quest);
+    const targetMapId = getQuestTargetMapId(quest);
     if (targetMapId && targetMapId !== this.currentMapId) {
       const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
       if (portal) {
@@ -4513,7 +4043,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    const targetX = this.getQuestTargetX(quest);
+    const targetX = getQuestTargetX(quest, this.currentMap);
     if (targetX === undefined) {
       this.questTargetText.setVisible(false);
       return;
@@ -4526,7 +4056,7 @@ export class GameScene extends Phaser.Scene {
   private getGuidedQuest() {
     return [...this.quests.values()]
       .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .find((quest) => quest.status !== "completed" && this.isQuestUnlocked(quest));
+      .find((quest) => quest.status !== "completed" && isQuestUnlocked(quest, this.quests));
   }
 
   private formatTargetIndicator(targetX: number, label: string) {
@@ -4580,7 +4110,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getQuestStatusPriority(quest: QuestSnapshot) {
-    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+    if (quest.status === "available" && !isQuestUnlocked(quest, this.quests)) {
       return 4;
     }
 
@@ -4592,10 +4122,6 @@ export class GameScene extends Phaser.Scene {
     };
 
     return statusOrder[quest.status];
-  }
-
-  private isQuestUnlocked(quest: QuestSnapshot) {
-    return (quest.prerequisiteQuestIds ?? []).every((questId) => this.quests.get(questId)?.status === "completed");
   }
 
   private getNearestPortal() {
@@ -4796,7 +4322,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private formatQuestLine(quest: QuestSnapshot) {
-    if (quest.status === "available" && !this.isQuestUnlocked(quest)) {
+    if (quest.status === "available" && !isQuestUnlocked(quest, this.quests)) {
       return `${quest.title}：${this.getQuestLockedHint(quest)}`;
     }
 
@@ -4848,7 +4374,7 @@ export class GameScene extends Phaser.Scene {
       return "";
     }
 
-    const targetMapId = this.getQuestTargetMapId(quest);
+    const targetMapId = getQuestTargetMapId(quest);
     if (targetMapId && targetMapId !== this.currentMapId) {
       const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
       if (!portal) {
@@ -4858,7 +4384,7 @@ export class GameScene extends Phaser.Scene {
       return this.formatDistanceHint(portal.x, `傳送門：${GAME_MAPS[targetMapId].name}`);
     }
 
-    const targetX = this.getQuestTargetX(quest);
+    const targetX = getQuestTargetX(quest, this.currentMap);
     if (targetX === undefined) {
       return "";
     }
@@ -4880,59 +4406,6 @@ export class GameScene extends Phaser.Scene {
     return dx > 0 ? `（往右 ${distance}）` : `（往左 ${distance}）`;
   }
 
-  private getQuestTargetMapId(quest: QuestSnapshot): MapId | undefined {
-    if (quest.status === "available" || quest.status === "ready") {
-      return Object.values(GAME_MAPS).find((map) => map.npcs.some((npc) => npc.id === quest.npcId))?.id;
-    }
-
-    if (quest.status !== "active") {
-      return undefined;
-    }
-
-    if (quest.objective.type === "kill") {
-      const targetKind = quest.objective.targetKind;
-      return Object.values(GAME_MAPS).find((map) =>
-        map.monsterSpawns.some((spawn) => spawn.kind === targetKind)
-      )?.id;
-    }
-
-    if (quest.objective.type === "interact") {
-      const targetId = quest.objective.targetId;
-      return Object.values(GAME_MAPS).find((map) =>
-        map.interactables.some((interactable) => interactable.targetId === targetId)
-      )?.id;
-    }
-
-    const targetKind = this.getItemSourceMonsterKind(quest.objective.itemId);
-    if (!targetKind) {
-      return undefined;
-    }
-
-    return Object.values(GAME_MAPS).find((map) => map.monsterSpawns.some((spawn) => spawn.kind === targetKind))?.id;
-  }
-
-  private getQuestTargetX(quest: QuestSnapshot) {
-    if (quest.status === "available" || quest.status === "ready") {
-      return this.currentMap.npcs.find((npc) => npc.id === quest.npcId)?.x;
-    }
-
-    if (quest.status !== "active") {
-      return undefined;
-    }
-
-    if (quest.objective.type === "kill") {
-      return this.getMonsterTargetX(quest.objective.targetKind);
-    }
-
-    if (quest.objective.type === "interact") {
-      const targetId = quest.objective.targetId;
-      return this.currentMap.interactables.find((interactable) => interactable.targetId === targetId)?.x;
-    }
-
-    const targetKind = this.getItemSourceMonsterKind(quest.objective.itemId);
-    return targetKind ? this.getMonsterTargetX(targetKind) : undefined;
-  }
-
   private getInteractableTargetName(targetId: string) {
     for (const map of Object.values(GAME_MAPS)) {
       const interactable = map.interactables.find((candidate) => candidate.targetId === targetId);
@@ -4942,70 +4415,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     return "地圖目標";
-  }
-
-  private getMonsterTargetX(kind: MonsterSnapshot["kind"]) {
-    return this.currentMap.monsterSpawns.find((spawn) => spawn.kind === kind)?.x;
-  }
-
-  private getItemSourceMonsterKind(itemId: ItemId): MonsterSnapshot["kind"] | undefined {
-    if (itemId === "rat-tail") {
-      return "field-rat";
-    }
-
-    if (itemId === "mist-gel") {
-      return "mist-slime";
-    }
-
-    if (itemId === "watcher-shell") {
-      return "tide-watcher";
-    }
-
-    if (itemId === "warehouse-cloth") {
-      return "warehouse-rat";
-    }
-
-    if (itemId === "damp-wood") {
-      return "mist-puppet";
-    }
-
-    if (itemId === "crab-shell") {
-      return "cave-crab";
-    }
-
-    if (itemId === "reef-spark") {
-      return "reef-wisp";
-    }
-
-    if (itemId === "coral-key") {
-      return "coral-warden";
-    }
-
-    if (itemId === "salted-page") {
-      return "archive-drifter";
-    }
-
-    if (itemId === "ink-core") {
-      return "ink-sprite";
-    }
-
-    if (itemId === "archive-seal") {
-      return "archive-guardian";
-    }
-
-    if (itemId === "star-dust") {
-      return "star-moth";
-    }
-
-    if (itemId === "lens-core") {
-      return "lens-sentinel";
-    }
-
-    if (itemId === "astral-seal") {
-      return "astral-keeper";
-    }
-
-    return undefined;
   }
 
   private showExpGain(expGained: number) {
@@ -5223,8 +4632,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getChapterClearSummary() {
-    const completed = this.getChapterQuestIds().filter((questId) => this.quests.get(questId)?.status === "completed").length;
-    const total = this.getChapterQuestIds().length;
+    const completed = chapterQuestIds.filter((questId) => this.quests.get(questId)?.status === "completed").length;
+    const total = chapterQuestIds.length;
     return [
       `完成進度：${completed}/${total}`,
       "霧港、海霧堤道、舊港倉庫、珊瑚潮洞、沉船書庫與星砂觀測台已納入章節導引。",
