@@ -15,7 +15,6 @@ import {
   SHOP_DEFINITIONS,
   SKILL_DEFINITIONS,
   getGameMap,
-  isClientMessage,
   type CharacterClass,
   type ClientMessage,
   type EquipmentSnapshot,
@@ -64,6 +63,7 @@ import {
   type SavedQuest
 } from "./persistence.js";
 import { SaveCoordinator } from "./saveCoordinator.js";
+import { registerWebSocketRouter } from "./webSocketRouter.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const googleClientId = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -2965,12 +2965,13 @@ setInterval(() => {
   }
 }, 5000);
 
-wss.on("connection", (ws, request) => {
-  ws.on("error", () => {
-    // Oversized/malformed frames and abrupt network failures must not become
-    // unhandled EventEmitter errors that terminate the classroom server.
-    messageValidationStats.invalidMessages += 1;
-  });
+interface PlayerConnection {
+  playerId: string;
+  saveSlot: string;
+  accountId?: string;
+}
+
+function connectPlayer(ws: WebSocket, request: IncomingMessage): PlayerConnection {
   const playerId = randomUUID();
   const authSession = getAuthSession(getSessionId(request.url));
   const fallbackSaveSlot = authSession ? `account-${authSession.accountId.slice(5, 13)}` : playerId;
@@ -3070,23 +3071,11 @@ wss.on("connection", (ws, request) => {
   sendEquipment(playerId);
   savePlayerGame(playerId);
   broadcastWorldSnapshots();
+  return { playerId, saveSlot, accountId: authSession?.accountId };
+}
 
-  ws.on("message", (raw) => {
-    let parsedMessage: unknown;
-
-    try {
-      parsedMessage = JSON.parse(raw.toString());
-    } catch {
-      messageValidationStats.invalidMessages += 1;
-      return;
-    }
-
-    if (!isClientMessage(parsedMessage)) {
-      messageValidationStats.invalidMessages += 1;
-      return;
-    }
-    const message = parsedMessage;
-
+function handleClientMessage(connection: PlayerConnection, ws: WebSocket, message: ClientMessage) {
+    const { playerId, saveSlot, accountId } = connection;
     if (message.type === "player:update") {
       const current = players.get(playerId);
       if (!current || message.player.id !== playerId) {
@@ -3226,7 +3215,7 @@ wss.on("connection", (ws, request) => {
         playerId,
         saveSlot,
         playerName: player?.name ?? playerId,
-        accountId: authSession?.accountId,
+        accountId,
         text,
         sentAt: now
       });
@@ -3237,9 +3226,9 @@ wss.on("connection", (ws, request) => {
         sentAt: now
       });
     }
-  });
+}
 
-  ws.on("close", () => {
+function disconnectPlayer({ playerId }: PlayerConnection) {
     try {
       flushPlayerGame(playerId);
     } catch (error) {
@@ -3263,7 +3252,16 @@ wss.on("connection", (ws, request) => {
     playerInvulnerableUntil.delete(playerId);
     broadcast({ type: "player:left", playerId });
     broadcastWorldSnapshots();
-  });
+}
+
+registerWebSocketRouter({
+  server: wss,
+  connect: connectPlayer,
+  route: handleClientMessage,
+  disconnect: disconnectPlayer,
+  onInvalidMessage: () => {
+    messageValidationStats.invalidMessages += 1;
+  }
 });
 
 setInterval(tickWorld, 1000 / 15);
