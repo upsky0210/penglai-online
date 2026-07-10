@@ -38,6 +38,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+where powershell.exe >nul 2>nul
+if errorlevel 1 (
+  echo [錯誤] 找不到 Windows PowerShell，無法安全讀取教師管理 Token。
+  echo.
+  pause
+  exit /b 1
+)
+
 if not exist "package.json" (
   echo [錯誤] 找不到 package.json，請把這個 bat 放在 penglai-online 專案根目錄。
   echo.
@@ -64,7 +72,7 @@ if not exist "node_modules" (
 echo.
 echo [安全設定] 請輸入教師管理 Token。
 echo Token 至少 20 字元，僅限英文字母、數字、底線或連字號；不可使用 smoke-admin。
-set /p "ADMIN_TOKEN=ADMIN_TOKEN："
+for /f "usebackq delims=" %%T in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\read-admin-token.ps1"`) do set "ADMIN_TOKEN=%%T"
 node scripts\validate-admin-token.mjs
 if errorlevel 1 (
   echo.
