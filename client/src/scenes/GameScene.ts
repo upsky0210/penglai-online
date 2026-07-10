@@ -27,8 +27,6 @@ import { characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClient
 import { GameAudioManager } from "../game/audioManager";
 import {
   mapBackgroundLayers,
-  monsterAnimationKeys,
-  monsterTextureKeys,
   mistOverlayTextureKey,
   optionalImageAssets,
   optionalSpriteSheets,
@@ -61,7 +59,6 @@ import { CombatVfx } from "../game/CombatVfx";
 import { HudLayer } from "../game/HudLayer";
 import { MapRenderer } from "../game/MapRenderer";
 import { RemoteEntityLayer } from "../game/RemoteEntityLayer";
-import type { ItemDropView, MonsterView } from "../game/viewTypes";
 import { GameSocket, getGameSocketUrl } from "../net/GameSocket";
 import {
   formatSaveSlot,
@@ -141,24 +138,6 @@ const emptyEquipment: EquipmentSnapshot = {
   armor: null
 };
 const fallbackPlayerTextureKey = "player";
-const monsterFallbackTextureKeys: Record<MonsterSnapshot["kind"], string> = {
-  "field-rat": "monster_field_rat_fallback",
-  "mist-slime": "monster_mist_slime_fallback",
-  "tide-watcher": "monster_tide_watcher_fallback",
-  "warehouse-rat": "monster_warehouse_rat_fallback",
-  "mist-puppet": "monster_mist_puppet_fallback",
-  "warehouse-sentry": "monster_warehouse_sentry_fallback",
-  "cave-crab": "monster_cave_crab_fallback",
-  "reef-wisp": "monster_reef_wisp_fallback",
-  "coral-warden": "monster_coral_warden_fallback",
-  "archive-drifter": "monster_archive_drifter_fallback",
-  "ink-sprite": "monster_ink_sprite_fallback",
-  "archive-guardian": "monster_archive_guardian_fallback",
-  "star-moth": "monster_star_moth_fallback",
-  "lens-sentinel": "monster_lens_sentinel_fallback",
-  "astral-keeper": "monster_astral_keeper_fallback"
-};
-
 export class GameScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys?: Record<KeyName, Phaser.Input.Keyboard.Key>;
@@ -166,12 +145,6 @@ export class GameScene extends Phaser.Scene {
   private facing: "left" | "right" = "right";
   private playerId = "";
   private ws?: GameSocket;
-  // Transitional fallback state for scene restart compatibility; live snapshots use RemoteEntityLayer.
-  private remotePlayers = new Map<string, Phaser.GameObjects.Sprite>();
-  private remotePlayerLastAnimation = new Map<string, PlayerAnimation>();
-  private remoteAttackSoundReadyAt = 0;
-  private monsters = new Map<string, MonsterView>();
-  private itemDrops = new Map<string, ItemDropView>();
   private statusText?: Phaser.GameObjects.Text;
   private levelText?: Phaser.GameObjects.Text;
   private hpBack?: Phaser.GameObjects.Rectangle;
@@ -229,7 +202,7 @@ export class GameScene extends Phaser.Scene {
   private mapObjects: Phaser.GameObjects.GameObject[] = [];
   private chapterStateObjects: Phaser.GameObjects.GameObject[] = [];
   private interactableStatusTexts = new Map<string, Phaser.GameObjects.Text>();
-  private monsterSnapshots = new Map<string, MonsterSnapshot>();
+
   private failedAssetKeys = new Set<string>();
   private platformColliders: Phaser.Physics.Arcade.Collider[] = [];
   private stageClearShown = false;
@@ -261,7 +234,7 @@ export class GameScene extends Phaser.Scene {
   private audio = new GameAudioManager();
   private combatVfx = new CombatVfx(this, this.audio);
   private mapRenderer = new MapRenderer(this);
-  private remoteEntities?: RemoteEntityLayer;
+  private remoteEntities!: RemoteEntityLayer;
   private hud?: HudLayer;
 
   constructor() {
@@ -2672,366 +2645,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applySnapshot(players: PlayerSnapshot[], monsters: MonsterSnapshot[], itemDrops: ItemDropSnapshot[]) {
-    this.remoteEntities?.applySnapshot(players, monsters, itemDrops);
-  }
-
-  private applyPlayerSnapshot(players: PlayerSnapshot[]) {
-    for (const player of players) {
-      if (player.id === this.playerId) {
-        this.updateHud(player);
-        continue;
-      }
-
-      let marker = this.remotePlayers.get(player.id);
-      if (!marker) {
-        marker = this.add.sprite(player.x, player.y, this.getPlayerTextureKey(player.animation));
-        marker.setTint(0xd9a441);
-        marker.setDepth(42);
-        this.remotePlayers.set(player.id, marker);
-      }
-
-      marker.setPosition(player.x, player.y);
-      marker.setFlipX(player.facing === "left");
-      marker.setAlpha(player.hp > 0 ? 1 : 0.35);
-      this.applyPlayerSpriteAnimation(marker, player.animation);
-
-      // 邊緣偵測:snapshot 15Hz 下 animation 持續為 attack/skill 時只演一次,回到其他狀態後才可再觸發
-      const previousAnimation = this.remotePlayerLastAnimation.get(player.id);
-      const isAttacking = player.animation === "attack" || player.animation === "skill";
-      if (isAttacking && player.animation !== previousAnimation && player.hp > 0) {
-        this.playRemoteAttackTelegraph(player);
-      }
-      this.remotePlayerLastAnimation.set(player.id, player.animation);
-    }
-
-    const liveIds = new Set(players.map((player) => player.id));
-    for (const [id, marker] of this.remotePlayers) {
-      if (!liveIds.has(id)) {
-        marker.destroy();
-        this.remotePlayers.delete(id);
-        this.remotePlayerLastAnimation.delete(id);
-      }
-    }
-  }
-
-  private playRemoteAttackTelegraph(player: PlayerSnapshot) {
-    const direction = player.facing === "left" ? -1 : 1;
-    const isSkill = player.animation === "skill";
-    this.flashAttackTelegraph(player.x, player.y, direction, player.className, isSkill);
-
-    // 音效只在該玩家進到畫面內才播,並全域節流,避免多人同圖時吵爆
-    if (
-      this.cameras.main.worldView.contains(player.x, player.y) &&
-      this.time.now >= this.remoteAttackSoundReadyAt
-    ) {
-      this.remoteAttackSoundReadyAt = this.time.now + 150;
-      this.audio.playRemoteAttackSound(isSkill, CLASS_SKILL_IDS[player.className]);
-    }
-  }
-
-  private applyMonsterSnapshot(monsters: MonsterSnapshot[]) {
-    this.monsterSnapshots = new Map(monsters.map((monster) => [monster.id, monster]));
-    for (const monster of monsters) {
-      const view = this.getOrCreateMonsterView(monster);
-      view.baseX = monster.x;
-      view.body.setPosition(monster.x + view.hitOffsetX, monster.y);
-      view.body.setAlpha(monster.alive ? 1 : 0.25);
-      if (view.body instanceof Phaser.GameObjects.Sprite) {
-        view.body.setFlipX(monster.facing === "left");
-        this.applyMonsterSpriteAnimation(view, monster.kind);
-      }
-      view.eye?.setPosition(monster.x + 8, monster.y - 4);
-      view.eye?.setAlpha(monster.alive ? 1 : 0.1);
-      view.hpBack.setPosition(monster.x, monster.y - 28);
-      view.hpFill.setPosition(monster.x - 18, monster.y - 28);
-      view.label.setPosition(monster.x - 28, monster.y - 52);
-      view.label.setAlpha(monster.alive ? 1 : 0.3);
-
-      const hpRatio = monster.maxHp === 0 ? 0 : Phaser.Math.Clamp(monster.hp / monster.maxHp, 0, 1);
-      view.hpFill.setDisplaySize(36 * hpRatio, 5);
-      view.hpFill.setAlpha(monster.alive ? 1 : 0);
-      view.hpBack.setAlpha(monster.alive ? 1 : 0);
-
-      if (monster.hitAt > view.lastHitAt) {
-        view.lastHitAt = monster.hitAt;
-        this.flashMonsterBody(view, monster.kind);
-        this.time.delayedCall(80, () => {
-          this.restoreMonsterBody(view, monster.kind);
-        });
-      }
-    }
-
-    const liveIds = new Set(monsters.map((monster) => monster.id));
-    for (const [id, view] of this.monsters) {
-      if (!liveIds.has(id)) {
-        this.tweens.killTweensOf(view);
-        view.body.destroy();
-        view.eye?.destroy();
-        view.hpBack.destroy();
-        view.hpFill.destroy();
-        view.label.destroy();
-        this.monsters.delete(id);
-      }
-    }
-    this.updateBossStatusPanel();
-  }
-
-  private applyItemDropSnapshot(itemDrops: ItemDropSnapshot[]) {
-    for (const drop of itemDrops) {
-      const view = this.getOrCreateItemDropView(drop);
-      view.body.setPosition(drop.x, drop.y - 10);
-      view.shine.setPosition(drop.x, drop.y - 18);
-      view.label.setPosition(drop.x - 44, drop.y - 44);
-    }
-
-    const liveIds = new Set(itemDrops.map((drop) => drop.id));
-    for (const [id, view] of this.itemDrops) {
-      if (!liveIds.has(id)) {
-        view.body.destroy();
-        view.shine.destroy();
-        view.label.destroy();
-        this.pendingPickupIds.delete(id);
-        this.itemDrops.delete(id);
-      }
-    }
-  }
-
-  private getOrCreateItemDropView(drop: ItemDropSnapshot) {
-    let view = this.itemDrops.get(drop.id);
-    if (view) {
-      return view;
-    }
-
-    const body = this.add
-      .rectangle(drop.x, drop.y - 10, 24, 18, ColorHex.vermilion)
-      .setStrokeStyle(1, ColorHex.gold, 0.6)
-      .setDepth(30);
-    const shine = this.add.circle(drop.x, drop.y - 18, 4, ColorHex.goldBright, 0.9).setDepth(31);
-    const label = this.add.text(drop.x - 44, drop.y - 44, `${drop.name} x${drop.quantity}`, {
-      fontFamily: uiFont,
-      fontSize: "11px",
-      color: ColorText.gold,
-      backgroundColor: "#10271fcc",
-      padding: { x: 5, y: 3 }
-    }).setDepth(31);
-
-    this.tweens.add({
-      targets: [body, shine],
-      y: "-=3",
-      duration: 520,
-      yoyo: true,
-      repeat: -1
-    });
-
-    view = { body, shine, label };
-    this.itemDrops.set(drop.id, view);
-    return view;
-  }
-
-  private getOrCreateMonsterView(monster: MonsterSnapshot) {
-    let view = this.monsters.get(monster.id);
-    if (view) {
-      return view;
-    }
-
-    const body = this.add.sprite(monster.x, monster.y, this.getMonsterTextureKey(monster.kind)).setDepth(34);
-    body.setDisplaySize(...this.getMonsterDisplaySize(monster.kind));
-    const eye = this.shouldUseMonsterEye(monster.kind) ? this.add.circle(monster.x + 8, monster.y - 4, 3, 0xf2efe6).setDepth(35) : undefined;
-    const hpBack = this.add
-      .rectangle(monster.x, monster.y - 28, 40, 7, ColorHex.barTrack)
-      .setOrigin(0.5)
-      .setStrokeStyle(1, ColorHex.gold, 0.4)
-      .setDepth(36);
-    const hpFill = this.add.rectangle(monster.x - 18, monster.y - 28, 36, 5, ColorHex.hp).setOrigin(0, 0.5).setDepth(37);
-    const label = this.add.text(monster.x - 28, monster.y - 54, monster.name, {
-      fontFamily: uiFont,
-      fontSize: "11px",
-      color: ColorText.parchment,
-      stroke: ColorText.ink,
-      strokeThickness: 3
-    }).setDepth(37);
-
-    if (eye) {
-      this.tweens.add({
-        targets: eye,
-        y: eye.y - 2,
-        duration: 360,
-        yoyo: true,
-        repeat: -1
-      });
-    }
-
-    view = { body, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt, baseX: monster.x, hitOffsetX: 0 };
-    this.monsters.set(monster.id, view);
-    return view;
+    this.remoteEntities.applySnapshot(players, monsters, itemDrops);
   }
 
   private nudgeMonsterView(monsterId: string) {
-    if (this.remoteEntities) {
-      this.remoteEntities.nudgeMonsterView(monsterId);
-      return;
-    }
-    const view = this.monsters.get(monsterId);
-    if (!view || !this.player) {
-      return;
-    }
-
-    // 往攻擊反方向推 8px、120ms 內彈回;只動顯示座標,快照仍是權威(D3)
-    const direction = view.baseX >= this.player.x ? 1 : -1;
-    this.tweens.killTweensOf(view);
-    view.hitOffsetX = 0;
-    this.tweens.add({
-      targets: view,
-      hitOffsetX: direction * 8,
-      duration: 60,
-      yoyo: true,
-      ease: "Quad.easeOut",
-      onUpdate: () => {
-        if (view.body.active) {
-          view.body.x = view.baseX + view.hitOffsetX;
-        }
-      },
-      onComplete: () => {
-        view.hitOffsetX = 0;
-        if (view.body.active) {
-          view.body.x = view.baseX;
-        }
-      }
-    });
-  }
-
-  private getMonsterColor(kind: MonsterSnapshot["kind"]) {
-    if (kind === "tide-watcher") {
-      return ColorHex.vermilion;
-    }
-
-    if (kind === "warehouse-sentry") {
-      return ColorHex.deepTeal;
-    }
-
-    if (kind === "coral-warden") {
-      return 0xd46a4c;
-    }
-
-    if (kind === "archive-guardian") {
-      return 0x6d5a83;
-    }
-
-    if (kind === "astral-keeper") {
-      return 0x596b8f;
-    }
-
-    if (kind === "lens-sentinel") {
-      return 0x4f7c86;
-    }
-
-    if (kind === "star-moth") {
-      return 0x9f7a37;
-    }
-
-    if (kind === "ink-sprite") {
-      return 0x6aa9d8;
-    }
-
-    if (kind === "archive-drifter") {
-      return 0xd9e6e5;
-    }
-
-    if (kind === "reef-wisp") {
-      return 0x7bd0d3;
-    }
-
-    if (kind === "cave-crab") {
-      return 0x74c7c8;
-    }
-
-    if (kind === "mist-puppet") {
-      return 0x9b7b52;
-    }
-
-    if (kind === "warehouse-rat") {
-      return 0xc0703e;
-    }
-
-    return kind === "mist-slime" ? 0x49b8ad : 0xa84f3c;
-  }
-
-  private getMonsterTextureKey(kind: MonsterSnapshot["kind"]) {
-    const externalTextureKey = monsterTextureKeys[kind];
-    return this.hasUsableTexture(externalTextureKey) ? externalTextureKey : monsterFallbackTextureKeys[kind];
-  }
-
-  private getMonsterDisplaySize(kind: MonsterSnapshot["kind"]): [number, number] {
-    if (kind === "astral-keeper") {
-      return [88, 88];
-    }
-
-    if (kind === "tide-watcher" || kind === "warehouse-sentry" || kind === "coral-warden" || kind === "archive-guardian") {
-      return [86, 86];
-    }
-
-    if (kind === "lens-sentinel") {
-      return [58, 52];
-    }
-
-    if (kind === "reef-wisp" || kind === "ink-sprite") {
-      return [46, 46];
-    }
-
-    if (kind === "archive-drifter" || kind === "star-moth") {
-      return [50, 42];
-    }
-
-    if (kind === "cave-crab") {
-      return [50, 38];
-    }
-
-    if (kind === "mist-puppet") {
-      return [46, 52];
-    }
-
-    return kind === "mist-slime" ? [40, 32] : [36, 26];
-  }
-
-  private shouldUseMonsterEye(kind: MonsterSnapshot["kind"]) {
-    return (
-      !this.hasUsableTexture(monsterTextureKeys[kind]) &&
-      (kind === "tide-watcher" || kind === "coral-warden" || kind === "archive-guardian" || kind === "astral-keeper")
-    );
-  }
-
-  private applyMonsterSpriteAnimation(view: MonsterView, kind: MonsterSnapshot["kind"]) {
-    if (!(view.body instanceof Phaser.GameObjects.Sprite)) {
-      return;
-    }
-
-    const animationKey = monsterAnimationKeys[kind];
-    if (this.hasUsableTexture(monsterTextureKeys[kind]) && this.anims.exists(animationKey)) {
-      if (view.body.anims.currentAnim?.key !== animationKey) {
-        view.body.play(animationKey, true);
-      }
-      return;
-    }
-
-    view.body.stop();
-  }
-
-  private flashMonsterBody(view: MonsterView, kind: MonsterSnapshot["kind"]) {
-    if (view.body instanceof Phaser.GameObjects.Sprite) {
-      view.body.setTint(0xf2efe6);
-      return;
-    }
-
-    view.body.setFillStyle(0xf2efe6);
-  }
-
-  private restoreMonsterBody(view: MonsterView, kind: MonsterSnapshot["kind"]) {
-    if (view.body instanceof Phaser.GameObjects.Sprite) {
-      view.body.clearTint();
-      return;
-    }
-
-    view.body.setFillStyle(this.getMonsterColor(kind));
+    this.remoteEntities.nudgeMonsterView(monsterId);
   }
 
   private sendPlayerUpdate(animation: PlayerAnimation) {
@@ -3267,235 +2885,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private flashHitbox(isSkill: boolean) {
-    this.combatVfx.flashHitbox(this.player, this.facing, this.localClassName, isSkill, (className) => this.getPrimarySkillFor(className));
-    return;
-    if (!this.player) {
-      return;
-    }
-
-    const direction = this.facing === "right" ? 1 : -1;
-    this.flashAttackTelegraph(this.player!.x, this.player!.y, direction, this.localClassName, isSkill);
-  }
-
-  private flashAttackTelegraph(x: number, y: number, direction: 1 | -1, className: CharacterClass, isSkill: boolean) {
-    this.combatVfx.flashAttackTelegraph(x, y, direction, className, isSkill, (targetClass) => this.getPrimarySkillFor(targetClass));
-    return;
-    if (!isSkill) {
-      this.flashBasicAttack(x, y, direction);
-      return;
-    }
-
-    if (className === "swordsman") {
-      this.flashSwordCleave(x, y, direction);
-      return;
-    }
-
-    if (className === "talisman") {
-      this.flashSpiritTalisman(x, y, direction);
-      return;
-    }
-
-    this.flashHunterShot(x, y, direction);
-  }
-
-  private flashBasicAttack(originX: number, originY: number, direction: 1 | -1) {
-    const x = originX + direction * 42;
-    const hitbox = this.add.rectangle(x, originY, 58, 34, 0xffd36d, 0.45);
-    this.tweens.add({
-      targets: hitbox,
-      alpha: 0,
-      duration: 140,
-      onComplete: () => hitbox.destroy()
-    });
-  }
-
-  private flashSwordCleave(originX: number, originY: number, direction: 1 | -1) {
-    const x = originX + direction * 52;
-    const y = originY - 4;
-    const slash = this.add.container(x, y);
-    const outer = this.add.rectangle(0, 0, 24, 96, 0x8fe7ff, 0.62).setAngle(direction * -30);
-    const inner = this.add.rectangle(direction * 8, 0, 9, 82, 0xf8fdff, 0.86).setAngle(direction * -30);
-    const spark = this.add.circle(direction * 24, -26, 9, 0xfff0a6, 0.82);
-    slash.add([outer, inner, spark]);
-    slash.setBlendMode(Phaser.BlendModes.ADD);
-
-    this.tweens.add({
-      targets: slash,
-      x: x + direction * 28,
-      scaleX: 1.35,
-      scaleY: 0.78,
-      alpha: 0,
-      duration: 180,
-      ease: "Quad.easeOut",
-      onComplete: () => slash.destroy()
-    });
-  }
-
-  private flashSpiritTalisman(originX: number, originY: number, direction: 1 | -1) {
-    const startX = originX + direction * 30;
-    const y = originY - 10;
-    const skill = this.getPrimarySkillFor("talisman");
-    const travel = Math.min(skill.range, 140) * direction;
-    const charm = this.add.container(startX, y);
-    const trail = this.add.rectangle(-direction * 24, 0, 52, 6, 0x70ddff, 0.32);
-    const paper = this.add.rectangle(0, 0, 18, 26, 0xffe7ad, 0.96);
-    const seal = this.add.text(-6, -12, "符", {
-      fontSize: "16px",
-      color: "#9b2f32",
-      stroke: "#fff2c7",
-      strokeThickness: 1
-    });
-    const glow = this.add.circle(0, 0, 18, 0x7ed7ff, 0.18);
-    paper.setStrokeStyle(2, 0x9b2f32, 0.85);
-    charm.add([glow, trail, paper, seal]);
-    charm.setBlendMode(Phaser.BlendModes.ADD);
-
-    this.tweens.add({
-      targets: charm,
-      x: startX + travel,
-      angle: direction * 12,
-      alpha: 0,
-      duration: 260,
-      ease: "Sine.easeOut",
-      onComplete: () => charm.destroy()
-    });
-  }
-
-  private flashHunterShot(originX: number, originY: number, direction: 1 | -1) {
-    const primarySkill = this.getPrimarySkillFor("hunter");
-    const width = Math.min(primarySkill.range, 150);
-    const startX = originX + direction * (width / 2 + 22);
-    const y = originY - 7;
-    const shot = this.add.container(startX, y);
-    const line = this.add.rectangle(0, 0, width, 5, 0xd9f0ff, 0.78);
-    const core = this.add.rectangle(direction * 12, 0, width * 0.72, 2, 0xfff4b8, 0.94);
-    const tip = this.add.triangle(
-      direction * (width / 2 + 8),
-      0,
-      0,
-      0,
-      18,
-      7,
-      0,
-      14,
-      0xd9f0ff,
-      0.9
+    this.combatVfx.flashHitbox(this.player, this.facing, this.localClassName, isSkill, (className) =>
+      this.getPrimarySkillFor(className)
     );
-    tip.setAngle(direction === 1 ? 0 : 180);
-    shot.add([line, core, tip]);
-    shot.setBlendMode(Phaser.BlendModes.ADD);
-
-    this.tweens.add({
-      targets: shot,
-      x: startX + direction * 24,
-      alpha: 0,
-      scaleX: 1.1,
-      duration: 150,
-      ease: "Quad.easeOut",
-      onComplete: () => shot.destroy()
-    });
   }
 
   private showDamage(monsterId: string, damage: number, defeated: boolean, isSkill = false, skillId?: SkillId) {
-    this.combatVfx.showDamage(this.remoteEntities?.getMonsterView(monsterId) ?? this.monsters.get(monsterId), damage, defeated, isSkill, skillId);
-    return;
-    const view = this.monsters.get(monsterId);
-    if (!view) {
-      return;
-    }
-
-    if (isSkill) {
-      this.flashSkillImpact(view!.body.x, view!.body.y, skillId);
-    }
-
-    const text = this.add.text(view!.body.x - 10, view!.body.y - 72, defeated ? "擊破" : `-${damage}`, {
-      fontFamily: uiFont,
-      fontSize: defeated ? "20px" : "17px",
-      color: defeated ? ColorText.riceWhite : isSkill ? ColorText.mistBlue : ColorText.gold,
-      stroke: ColorText.ink,
-      strokeThickness: 4
-    });
-    this.tweens.add({
-      targets: text,
-      y: text.y - 28,
-      alpha: 0,
-      duration: 520,
-      onComplete: () => text.destroy()
-    });
-  }
-
-  private flashSkillImpact(x: number, y: number, skillId?: SkillId) {
-    const color =
-      skillId === "sword-cleave" ? 0xa8edff : skillId === "spirit-talisman" ? 0xffd36d : 0xd9f0ff;
-    const ring = this.add.circle(x, y - 18, skillId === "spirit-talisman" ? 24 : 18, color, 0.24);
-    const spark = this.add.circle(x, y - 18, 7, 0xffffff, 0.62);
-    ring.setStrokeStyle(2, color, 0.9);
-    ring.setBlendMode(Phaser.BlendModes.ADD);
-    spark.setBlendMode(Phaser.BlendModes.ADD);
-
-    this.tweens.add({
-      targets: [ring, spark],
-      scale: 1.7,
-      alpha: 0,
-      duration: 230,
-      ease: "Quad.easeOut",
-      onComplete: () => {
-        ring.destroy();
-        spark.destroy();
-      }
-    });
+    this.combatVfx.showDamage(this.remoteEntities.getMonsterView(monsterId), damage, defeated, isSkill, skillId);
   }
 
   private showMiss(isSkill = false, skillId?: SkillId) {
     this.combatVfx.showMiss(this.player, this.facing, isSkill, skillId);
-    return;
-    this.audio.playMissSound(isSkill, skillId);
-    if (!this.player) {
-      return;
-    }
-
-    const direction = this.facing === "right" ? 1 : -1;
-    const color = isSkill ? this.getSkillEffectColor(skillId) : "#d8cfae";
-    const x = this.player!.x + direction * 58;
-    const y = this.player!.y - 52;
-    const text = this.add.text(x - 24, y, isSkill ? "未命中" : "落空", {
-      fontSize: "14px",
-      color,
-      stroke: "#181018",
-      strokeThickness: 3
-    });
-    const marker = this.add.circle(x, y + 12, isSkill ? 16 : 11, Phaser.Display.Color.HexStringToColor(color).color, 0.18);
-    marker.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color, 0.72);
-    marker.setBlendMode(Phaser.BlendModes.ADD);
-
-    this.tweens.add({
-      targets: [text, marker],
-      x: `+=${direction * 16}`,
-      y: "-=18",
-      alpha: 0,
-      duration: 420,
-      ease: "Quad.easeOut",
-      onComplete: () => {
-        text.destroy();
-        marker.destroy();
-      }
-    });
-  }
-
-  private getSkillEffectColor(skillId?: SkillId) {
-    if (skillId === "sword-cleave") {
-      return "#a8edff";
-    }
-
-    if (skillId === "spirit-talisman") {
-      return "#ffd36d";
-    }
-
-    if (skillId === "hunter-shot") {
-      return "#d9f0ff";
-    }
-
-    return "#7ed7ff";
   }
 
   private adjustAudioVolume(delta: number) {
@@ -3715,7 +3115,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    for (const [dropId, view] of this.remoteEntities?.getItemDrops() ?? this.itemDrops) {
+    for (const [dropId, view] of this.remoteEntities.getItemDrops()) {
       if (Math.abs(this.player.x - view.body.x) <= 64 && Math.abs(this.player.y - view.body.y) <= 72) {
         this.nearbyDropId = dropId;
         this.tryAutoPickupDrop(dropId);
@@ -4277,7 +3677,7 @@ export class GameScene extends Phaser.Scene {
 
   private getCurrentBossStatusTarget() {
     if (this.currentMapId === "mist-breakwater") {
-      const monster = this.remoteEntities?.getMonsterSnapshot("tide-watcher-1") ?? this.monsterSnapshots.get("tide-watcher-1");
+      const monster = this.remoteEntities.getMonsterSnapshot("tide-watcher-1");
       const quest = this.quests.get("tide-watcher-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1320));
       return monster && shouldShow
@@ -4291,7 +3691,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "old-harbor-warehouse") {
-      const monster = this.remoteEntities?.getMonsterSnapshot("warehouse-sentry-1") ?? this.monsterSnapshots.get("warehouse-sentry-1");
+      const monster = this.remoteEntities.getMonsterSnapshot("warehouse-sentry-1");
       const quest = this.quests.get("warehouse-sentry-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1500));
       return monster && shouldShow
@@ -4305,7 +3705,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "coral-tide-cavern") {
-      const monster = this.remoteEntities?.getMonsterSnapshot("coral-warden-1") ?? this.monsterSnapshots.get("coral-warden-1");
+      const monster = this.remoteEntities.getMonsterSnapshot("coral-warden-1");
       const quest = this.quests.get("coral-warden-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1840));
       return monster && shouldShow
@@ -4319,7 +3719,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "sunken-archive") {
-      const monster = this.remoteEntities?.getMonsterSnapshot("archive-guardian-1") ?? this.monsterSnapshots.get("archive-guardian-1");
+      const monster = this.remoteEntities.getMonsterSnapshot("archive-guardian-1");
       const quest = this.quests.get("archive-guardian-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2040));
       return monster && shouldShow
@@ -4333,7 +3733,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "starlit-observatory") {
-      const monster = this.remoteEntities?.getMonsterSnapshot("astral-keeper-1") ?? this.monsterSnapshots.get("astral-keeper-1");
+      const monster = this.remoteEntities.getMonsterSnapshot("astral-keeper-1");
       const quest = this.quests.get("astral-keeper-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2200));
       return monster && shouldShow
