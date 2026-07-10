@@ -61,9 +61,9 @@ import {
   upsertGoogleAccount,
   type FeedbackStatus,
   type SaveGameInput,
-  type SavedGame,
   type SavedQuest
 } from "./persistence.js";
+import { SaveCoordinator } from "./saveCoordinator.js";
 
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const googleClientId = process.env.GOOGLE_CLIENT_ID ?? "";
@@ -108,15 +108,6 @@ const playerMovementStates = new Map<
   string,
   { horizontalBudget: number; verticalBudget: number; lastRefillAt: number }
 >();
-interface PendingPlayerSave {
-  saveSlot: string;
-  data: SaveGameInput;
-  firstQueuedAt: number;
-  attempts: number;
-  lastAttemptAt?: number;
-}
-const pendingPlayerSaves = new Map<string, PendingPlayerSave>();
-const simulatedSaveFailureSlots = new Set<string>();
 let lastWorldTickAt = Date.now();
 let classroomChatLocked = false;
 let classroomChatLockMessage = "課堂聊天已暫停，請聽老師說明。";
@@ -141,19 +132,11 @@ const itemPickupRange = 72;
 const itemDropLifetimeMs = 60_000;
 const chatCooldownMs = 1200;
 const returnSafeCooldownMs = 15_000;
-const simulatedSaveFailureSlotPrefix = process.env.PENGLAI_TEST_FAIL_SAVE_ONCE_SLOT_PREFIX ?? "";
 const messageValidationStats = {
   invalidMessages: 0,
   rejectedMapChanges: 0,
   rejectedMovements: 0,
   rejectedIdentityChanges: 0
-};
-const saveFlushStats = {
-  attempts: 0,
-  successes: 0,
-  failures: 0,
-  lastSuccessAt: 0,
-  lastFailureAt: 0
 };
 const equipmentDropChances: Partial<Record<ItemId, number>> = {
   "training-sword": 0.18,
@@ -583,11 +566,7 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
   if (url.pathname === "/debug/reliability-stats" && request.method === "GET") {
     sendJson(response, 200, {
       messages: messageValidationStats,
-      saves: {
-        ...saveFlushStats,
-        queued: pendingPlayerSaves.size,
-        oldestQueuedMs: getOldestPendingSaveAge()
-      }
+      saves: saveCoordinator.getMetrics()
     });
     return;
   }
@@ -1651,114 +1630,22 @@ function createPlayerSaveSnapshot(playerId: string) {
 }
 
 function savePlayerGame(playerId: string) {
-  const snapshot = createPlayerSaveSnapshot(playerId);
-  if (!snapshot) {
-    return undefined;
-  }
-
-  const existing = pendingPlayerSaves.get(snapshot.saveSlot);
-  pendingPlayerSaves.set(snapshot.saveSlot, {
-    saveSlot: snapshot.saveSlot,
-    data: snapshot.data,
-    firstQueuedAt: existing?.firstQueuedAt ?? Date.now(),
-    attempts: existing?.attempts ?? 0,
-    lastAttemptAt: existing?.lastAttemptAt
-  });
-  return snapshot.saveSlot;
+  return saveCoordinator.queuePlayer(playerId);
 }
 
 function flushPlayerGame(playerId: string) {
-  const saveSlot = savePlayerGame(playerId);
-  return saveSlot ? flushPendingPlayerSave(saveSlot) : false;
+  return saveCoordinator.flushPlayer(playerId);
 }
 
 function flushDirtyPlayerGames() {
-  let failures = 0;
-  for (const saveSlot of [...pendingPlayerSaves.keys()]) {
-    try {
-      flushPendingPlayerSave(saveSlot);
-    } catch (error) {
-      failures += 1;
-      console.error(`Failed to flush save slot ${saveSlot}`, error);
-    }
-  }
-  return failures;
+  return saveCoordinator.flushDirty();
 }
 
-function flushPendingPlayerSave(saveSlot: string) {
-  const pending = pendingPlayerSaves.get(saveSlot);
-  if (!pending) {
-    return true;
-  }
-
-  pending.attempts += 1;
-  pending.lastAttemptAt = Date.now();
-  saveFlushStats.attempts += 1;
-
-  try {
-    if (
-      simulatedSaveFailureSlotPrefix &&
-      saveSlot.startsWith(simulatedSaveFailureSlotPrefix) &&
-      !simulatedSaveFailureSlots.has(saveSlot)
-    ) {
-      simulatedSaveFailureSlots.add(saveSlot);
-      throw new Error("Simulated one-time save failure for reliability smoke");
-    }
-    saveGame(saveSlot, pending.data);
-    if (pendingPlayerSaves.get(saveSlot) === pending) {
-      pendingPlayerSaves.delete(saveSlot);
-    }
-    saveFlushStats.successes += 1;
-    saveFlushStats.lastSuccessAt = Date.now();
-    return true;
-  } catch (error) {
-    saveFlushStats.failures += 1;
-    saveFlushStats.lastFailureAt = Date.now();
-    throw error;
-  }
-}
-
-function getPendingSavedGame(saveSlot: string): SavedGame | undefined {
-  const data = pendingPlayerSaves.get(saveSlot)?.data;
-  if (!data) {
-    return undefined;
-  }
-
-  return {
-    character: {
-      name: data.player.name,
-      className: data.player.className,
-      identityLocked: data.identityLocked,
-      level: data.player.level,
-      exp: data.player.exp,
-      expToNext: data.player.expToNext,
-      gold: data.player.gold,
-      hp: data.player.hp,
-      mp: data.player.mp,
-      mapId: data.player.mapId,
-      x: data.player.x,
-      y: data.player.y,
-      facing: data.player.facing
-    },
-    inventory: data.inventory.map((slot) => ({ ...slot })),
-    equipment: { ...data.equipment },
-    quests: data.quests.map((quest) => ({
-      questId: quest.id,
-      status: quest.status,
-      progress: quest.progress,
-      interactedTargetIds: [...(quest.interactedTargetIds ?? [])]
-    }))
-  };
-}
-
-function getOldestPendingSaveAge() {
-  if (pendingPlayerSaves.size === 0) {
-    return 0;
-  }
-
-  const oldestQueuedAt = Math.min(...[...pendingPlayerSaves.values()].map((pending) => pending.firstQueuedAt));
-  return Date.now() - oldestQueuedAt;
-}
+const saveCoordinator = new SaveCoordinator({
+  createSnapshot: createPlayerSaveSnapshot,
+  persist: saveGame,
+  simulatedFailureSlotPrefix: process.env.PENGLAI_TEST_FAIL_SAVE_ONCE_SLOT_PREFIX ?? ""
+});
 
 // 廣播成本計數器:僅供 smoke:broadcast-budget 讀取(/debug/broadcast-stats),不影響遊戲邏輯。
 const broadcastStats = {
@@ -3096,7 +2983,7 @@ wss.on("connection", (ws, request) => {
   }
   // If a previous disconnect is still waiting for a successful DB retry, restore
   // from that in-memory snapshot instead of loading an older row and overwriting it.
-  const savedGame = getPendingSavedGame(saveSlot) ?? loadGame(saveSlot);
+  const savedGame = saveCoordinator.getPendingSavedGame(saveSlot) ?? loadGame(saveSlot);
   const savedCharacter = savedGame.character;
   const savedClassName = isCharacterClass(savedCharacter?.className) ? savedCharacter.className : "swordsman";
   const maxHp = getMaxHp(playerId, savedClassName);
