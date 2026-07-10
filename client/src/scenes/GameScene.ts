@@ -142,22 +142,6 @@ export class GameScene extends Phaser.Scene {
   private facing: "left" | "right" = "right";
   private playerId = "";
   private ws?: GameSocket;
-  private statusText?: Phaser.GameObjects.Text;
-  private levelText?: Phaser.GameObjects.Text;
-  private hpBack?: Phaser.GameObjects.Rectangle;
-  private hpFill?: Phaser.GameObjects.Rectangle;
-  private hpText?: Phaser.GameObjects.Text;
-  private mpBack?: Phaser.GameObjects.Rectangle;
-  private mpFill?: Phaser.GameObjects.Rectangle;
-  private mpText?: Phaser.GameObjects.Text;
-  private expBack?: Phaser.GameObjects.Rectangle;
-  private expFill?: Phaser.GameObjects.Rectangle;
-  private expText?: Phaser.GameObjects.Text;
-  private bossHpBack?: Phaser.GameObjects.Rectangle;
-  private bossHpFill?: Phaser.GameObjects.Rectangle;
-  private bossStatusText?: Phaser.GameObjects.Text;
-  private goldText?: Phaser.GameObjects.Text;
-  private skillText?: Phaser.GameObjects.Text;
   private inventoryPanel?: UiPanel;
   private questPanel?: UiPanel;
   private questLogPanel?: UiPanel;
@@ -167,11 +151,6 @@ export class GameScene extends Phaser.Scene {
   private shopPanel?: UiPanel;
   private savePanel?: UiPanel;
   private settingsPanel?: UiPanel;
-  private dialogueText?: Phaser.GameObjects.Text;
-  private dialogueBox?: Phaser.GameObjects.Graphics;
-  private promptText?: Phaser.GameObjects.Text;
-  private questTargetText?: Phaser.GameObjects.Text;
-  private zoneText?: Phaser.GameObjects.Text;
   private quests = new Map<string, QuestSnapshot>();
   private announcements: AnnouncementNotice[] = [];
   private inventory: InventorySlot[] = [];
@@ -836,7 +815,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.localHp <= 0) {
       this.player.setVelocityX(0);
-      this.promptText?.setVisible(false);
+      this.hud?.setPrompt();
       return;
     }
 
@@ -1335,108 +1314,7 @@ export class GameScene extends Phaser.Scene {
   private addHud() {
     this.currentSaveSlot = this.getSaveSlot();
     this.previousSaveSlot = this.getPreviousSaveSlot();
-
-    const hudPlate = this.add.graphics().setScrollFactor(0);
-    hudPlate.fillStyle(ColorHex.shadow, 0.4);
-    hudPlate.fillRoundedRect(13, 13, 300, 188, 12);
-    hudPlate.fillStyle(ColorHex.woodDark, 0.96);
-    hudPlate.fillRoundedRect(11, 11, 300, 188, 12);
-    hudPlate.fillStyle(ColorHex.inkGreenDeep, 0.88);
-    hudPlate.fillRoundedRect(14, 14, 294, 182, 10);
-    hudPlate.lineStyle(1, ColorHex.gold, 0.42);
-    hudPlate.strokeRoundedRect(12.5, 12.5, 297, 185, 11);
-
-    this.statusText = this.add
-      .text(24, 20, "連線中...", {
-        fontFamily: uiFont,
-        fontSize: "13px",
-        color: ColorText.sand
-      })
-      .setScrollFactor(0);
-
-    this.levelText = this.add
-      .text(24, 40, `${this.characterName} | 等級 1`, {
-        fontFamily: uiFont,
-        fontSize: "16px",
-        color: ColorText.gold,
-        fontStyle: "bold"
-      })
-      .setScrollFactor(0);
-
-    this.add
-      .text(24, 70, "經驗", { fontFamily: uiFont, fontSize: "12px", color: ColorText.jade })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0);
-    this.expBack = this.add
-      .rectangle(95, 70, 184, 12, ColorHex.barTrack)
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0)
-      .setStrokeStyle(1, ColorHex.gold, 0.3);
-    this.expFill = this.add.rectangle(97, 70, 0, 8, ColorHex.exp).setOrigin(0, 0.5).setScrollFactor(0);
-    this.expText = this.add
-      .text(276, 70, "0/60", { fontFamily: uiFont, fontSize: "11px", color: ColorText.parchment })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-
-    this.add
-      .text(24, 98, "生命", { fontFamily: uiFont, fontSize: "12px", color: ColorText.riceWhite })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0);
-    this.hpBack = this.add
-      .rectangle(95, 98, 184, 12, ColorHex.barTrack)
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0)
-      .setStrokeStyle(1, ColorHex.gold, 0.3);
-    this.hpFill = this.add.rectangle(97, 98, 180, 8, ColorHex.hp).setOrigin(0, 0.5).setScrollFactor(0);
-    this.hpText = this.add
-      .text(276, 98, "100/100", { fontFamily: uiFont, fontSize: "11px", color: ColorText.riceWhite })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-
-    this.add
-      .text(24, 122, "法力", { fontFamily: uiFont, fontSize: "12px", color: ColorText.mistBlue })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0);
-    this.mpBack = this.add
-      .rectangle(95, 122, 184, 12, ColorHex.barTrack)
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0)
-      .setStrokeStyle(1, ColorHex.gold, 0.3);
-    this.mpFill = this.add.rectangle(97, 122, 180, 8, ColorHex.mp).setOrigin(0, 0.5).setScrollFactor(0);
-    this.mpText = this.add
-      .text(276, 122, `${maxPlayerMp}/${maxPlayerMp}`, { fontFamily: uiFont, fontSize: "11px", color: ColorText.riceWhite })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-
-    this.goldText = this.add
-      .text(24, 150, "金幣 0", {
-        fontFamily: uiFont,
-        fontSize: "13px",
-        color: ColorText.gold
-      })
-      .setScrollFactor(0);
-
-    const primarySkill = this.getPrimarySkill();
-    this.skillText = this.add
-      .text(24, 172, `J ${primarySkill.name} | ${primarySkill.mpCost} 法力 | 可施放`, {
-        fontFamily: uiFont,
-        fontSize: "12px",
-        color: ColorText.mistBlue
-      })
-      .setScrollFactor(0);
-
-    this.add
-      .text(324, 18, "A/D 移動  W 跳躍  K 攻擊  J 技能  E 對話/互動  自動拾取\nI 背包  Q 任務  C 角色  P 存檔/帳號  Z 回安全區(連按兩下)", {
-        fontFamily: uiFont,
-        fontSize: "12px",
-        color: ColorText.riceWhite,
-        backgroundColor: "#10271fe6",
-        padding: { x: 9, y: 5 },
-        fixedWidth: 610,
-        wordWrap: { width: 592 }
-      })
-      .setScrollFactor(0)
-      .setDepth(205);
+    this.hud = new HudLayer(this, this.characterName, this.getPrimarySkill(), maxPlayerMp);
 
     this.inventoryPanel = this.addUiPanel(18, 194, 250, 154, "背包");
     this.questPanel = this.addUiPanel(gameWidth - 292, 18, 274, 136, "任務");
@@ -1460,119 +1338,6 @@ export class GameScene extends Phaser.Scene {
     this.updateShopPanel();
     this.updateSavePanel();
     this.updateSettingsPanel();
-
-    this.zoneText = this.add
-      .text(gameWidth / 2, 30, "", {
-        fontFamily: uiFont,
-        fontSize: "18px",
-        color: ColorText.gold,
-        backgroundColor: "#10271fdd",
-        padding: { x: 18, y: 8 },
-        fontStyle: "bold"
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(200)
-      .setVisible(false);
-
-    this.questTargetText = this.add
-      .text(gameWidth / 2, 62, "", {
-        fontFamily: uiFont,
-        fontSize: "14px",
-        color: ColorText.parchment,
-        backgroundColor: "#10271fdd",
-        padding: { x: 12, y: 6 },
-        fixedWidth: 360,
-        align: "center",
-        wordWrap: { width: 340 }
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(198)
-      .setVisible(false);
-
-    this.bossHpBack = this.add
-      .rectangle(gameWidth / 2, 104, 284, 14, ColorHex.barTrack)
-      .setScrollFactor(0)
-      .setDepth(198)
-      .setStrokeStyle(1, ColorHex.gold, 0.45)
-      .setVisible(false);
-    this.bossHpFill = this.add
-      .rectangle(gameWidth / 2 - 140, 104, 280, 10, ColorHex.vermilion)
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0)
-      .setDepth(199)
-      .setVisible(false);
-    this.bossStatusText = this.add
-      .text(gameWidth / 2, 84, "", {
-        fontFamily: uiFont,
-        fontSize: "13px",
-        color: ColorText.gold,
-        backgroundColor: "#10271fdd",
-        padding: { x: 10, y: 4 },
-        fixedWidth: 330,
-        align: "center",
-        wordWrap: { width: 310 }
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(199)
-      .setVisible(false);
-
-    this.dialogueBox = this.add.graphics().setScrollFactor(0).setDepth(200).setVisible(false);
-    {
-      const bw = 520;
-      const bh = 66;
-      const bx = gameWidth / 2 - bw / 2;
-      const by = 112;
-      this.dialogueBox.fillStyle(ColorHex.shadow, 0.45);
-      this.dialogueBox.fillRoundedRect(bx + 3, by + 5, bw, bh, 12);
-      this.dialogueBox.fillStyle(ColorHex.woodDark, 1);
-      this.dialogueBox.fillRoundedRect(bx, by, bw, bh, 12);
-      this.dialogueBox.fillStyle(ColorHex.inkGreenDeep, 0.97);
-      this.dialogueBox.fillRoundedRect(bx + 4, by + 4, bw - 8, bh - 8, 9);
-      this.dialogueBox.fillStyle(ColorHex.gold, 0.85);
-      this.dialogueBox.fillRect(bx + 14, by + 12, 3, bh - 24);
-      this.dialogueBox.lineStyle(1, ColorHex.gold, 0.55);
-      this.dialogueBox.strokeRoundedRect(bx + 2, by + 2, bw - 4, bh - 4, 10);
-    }
-
-    this.dialogueText = this.add
-      .text(gameWidth / 2, 145, "", {
-        fontFamily: uiFont,
-        fontSize: "14px",
-        color: ColorText.parchment,
-        padding: { x: 12, y: 7 },
-        fixedWidth: 486,
-        align: "center",
-        wordWrap: { width: 462 }
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(201)
-      .setVisible(false);
-
-    this.promptText = this.add
-      .text(gameWidth / 2, gameHeight - 118, "E 對話", {
-        fontFamily: uiFont,
-        fontSize: "14px",
-        color: ColorText.ink,
-        backgroundColor: "#eac373",
-        padding: { x: 12, y: 6 },
-        fontStyle: "bold"
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(200)
-      .setVisible(false);
-
-    this.hud = HudLayer.bind(this, {
-      statusText: this.statusText!, levelText: this.levelText!, hpFill: this.hpFill!, hpText: this.hpText!,
-      mpFill: this.mpFill!, mpText: this.mpText!, expFill: this.expFill!, expText: this.expText!,
-      goldText: this.goldText!, skillText: this.skillText!, bossHpBack: this.bossHpBack!, bossHpFill: this.bossHpFill!,
-      bossStatusText: this.bossStatusText!, dialogueBox: this.dialogueBox!, dialogueText: this.dialogueText!,
-      promptText: this.promptText!, zoneText: this.zoneText!
-    });
   }
 
   private addUiPanel(x: number, y: number, width: number, height: number, title: string): UiPanel {
@@ -1635,10 +1400,10 @@ export class GameScene extends Phaser.Scene {
     const wsUrl = this.getWsUrl();
     this.ws = new GameSocket(wsUrl, {
       onOpen: () => {
-        this.statusText?.setText(`已連線 | 存檔 ${formatSaveSlot(this.currentSaveSlot)}`);
+        this.hud?.setStatus(`已連線 | 存檔 ${formatSaveSlot(this.currentSaveSlot)}`);
       },
       onError: () => {
-        this.statusText?.setText("連線失敗，請確認伺服器是否啟動");
+        this.hud?.setStatus("連線失敗，請確認伺服器是否啟動");
         this.showToast("連線失敗，請確認伺服器或網路。");
       },
       onMessage: (message) => {
@@ -1651,7 +1416,7 @@ export class GameScene extends Phaser.Scene {
           this.currentSaveSlot = message.saveSlot;
           persistCurrentSaveSlot(message.saveSlot);
           this.updateSavePanel();
-          this.statusText?.setText(
+          this.hud?.setStatus(
             message.authenticated
               ? `已連線 | Google | 存檔 ${formatSaveSlot(message.saveSlot)}`
               : `已連線 | 存檔 ${formatSaveSlot(message.saveSlot)}`
@@ -1807,7 +1572,7 @@ export class GameScene extends Phaser.Scene {
       }
       },
       onClose: () => {
-        this.statusText?.setText("伺服器連線中斷");
+        this.hud?.setStatus("伺服器連線中斷");
         this.showToast("伺服器連線中斷，請重新整理或重新啟動伺服器。");
       }
     });
@@ -2384,20 +2149,6 @@ export class GameScene extends Phaser.Scene {
     this.localPlayerName = player.name;
     this.localClassName = player.className;
     this.hud?.updatePlayer(player);
-    this.levelText?.setText(`${player.name} | 等級 ${player.level}`);
-    this.expText?.setText(`${player.exp}/${player.expToNext}`);
-    this.hpText?.setText(`${player.hp}/${player.maxHp}`);
-    this.mpText?.setText(`${Math.floor(player.mp)}/${player.maxMp}`);
-    this.goldText?.setText(`金幣 ${player.gold}`);
-
-    const ratio = Phaser.Math.Clamp(player.exp / player.expToNext, 0, 1);
-    this.expFill?.setDisplaySize(180 * ratio, 8);
-
-    const hpRatio = Phaser.Math.Clamp(player.hp / player.maxHp, 0, 1);
-    this.hpFill?.setDisplaySize(180 * hpRatio, 8);
-
-    const mpRatio = Phaser.Math.Clamp(player.mp / player.maxMp, 0, 1);
-    this.mpFill?.setDisplaySize(180 * mpRatio, 8);
     this.updateSkillCooldownHud();
     this.updateCharacterPanel();
     this.player?.setAlpha(player.hp > 0 ? 1 : 0.35);
@@ -2425,23 +2176,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateSkillCooldownHud() {
-    if (!this.skillText) {
-      return;
-    }
-
-    const remainingMs = this.getSkillCooldownRemainingMs();
-    const primarySkill = this.getPrimarySkill();
-    const status =
-      remainingMs > 0
-        ? `${(remainingMs / 1000).toFixed(1)}秒`
-        : this.localMp >= primarySkill.mpCost
-          ? "可施放"
-          : `缺 ${Math.ceil(primarySkill.mpCost - this.localMp)} 法力`;
-    const color = remainingMs > 0 ? ColorText.sand : this.localMp >= primarySkill.mpCost ? ColorText.mistBlue : ColorText.danger;
-
-    this.hud?.updateSkill(primarySkill, this.localMp, remainingMs);
-    this.skillText.setText(`J ${primarySkill.name} | ${primarySkill.mpCost} 法力 | ${status}`);
-    this.skillText.setColor(color);
+    this.hud?.updateSkill(this.getPrimarySkill(), this.localMp, this.getSkillCooldownRemainingMs());
   }
 
   private updateInventoryHud() {
@@ -2503,7 +2238,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateActionPrompt() {
-    if (!this.player || !this.promptText) {
+    if (!this.player || !this.hud) {
       return;
     }
 
@@ -2528,8 +2263,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       const action = this.openShop?.npcId === nearbyNpc.id ? "E 對話 / N 選擇 / B 購買" : "E 對話";
-      this.promptText.setText(`${action}：${nearbyNpc.name}`);
-      this.promptText.setVisible(true);
+      this.hud.setPrompt(`${action}：${nearbyNpc.name}`);
       return;
     }
 
@@ -2549,8 +2283,7 @@ export class GameScene extends Phaser.Scene {
     if (nearbyInteractable) {
       this.nearbyInteractableId = nearbyInteractable.id;
       const state = this.getInteractableState(nearbyInteractable);
-      this.promptText.setText(`${state.done ? "已完成" : nearbyInteractable.prompt}：${nearbyInteractable.name}（${state.label}）`);
-      this.promptText.setVisible(true);
+      this.hud.setPrompt(`${state.done ? "已完成" : nearbyInteractable.prompt}：${nearbyInteractable.name}（${state.label}）`);
       return;
     }
 
@@ -2563,8 +2296,7 @@ export class GameScene extends Phaser.Scene {
 
     if (nearbyPortal) {
       this.nearbyPortalId = nearbyPortal.id;
-      this.promptText.setText(`E 傳送：${nearbyPortal.name}`);
-      this.promptText.setVisible(true);
+      this.hud.setPrompt(`E 傳送：${nearbyPortal.name}`);
       return;
     }
 
@@ -2572,13 +2304,12 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(this.player.x - view.body.x) <= 64 && Math.abs(this.player.y - view.body.y) <= 72) {
         this.nearbyDropId = dropId;
         this.tryAutoPickupDrop(dropId);
-        this.promptText.setText("自動拾取");
-        this.promptText.setVisible(true);
+        this.hud.setPrompt("自動拾取");
         return;
       }
     }
 
-    this.promptText.setVisible(false);
+    this.hud.setPrompt();
   }
 
   private updateInteractableStatusLabels() {
@@ -2623,27 +2354,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateZoneBanner() {
-    if (!this.player || !this.zoneText) {
-      return;
-    }
-
+    if (!this.player || !this.hud) return;
     const zone = this.getCurrentZoneName(this.player.x, this.player.y);
-    if (zone.id === this.currentZoneId) {
-      return;
-    }
-
+    if (zone.id === this.currentZoneId) return;
     this.currentZoneId = zone.id;
-    this.zoneText.setText(zone.name);
-    this.zoneText.setAlpha(1);
-    this.zoneText.setVisible(true);
-    this.tweens.killTweensOf(this.zoneText);
-    this.tweens.add({
-      targets: this.zoneText,
-      alpha: 0,
-      delay: 1400,
-      duration: 420,
-      onComplete: () => this.zoneText?.setVisible(false)
-    });
+    this.hud.showZone(zone.name);
   }
 
   private getCurrentZoneName(x: number, y: number) {
@@ -2911,34 +2626,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateQuestTargetIndicator() {
-    if (!this.questTargetText || !this.player) {
-      return;
-    }
-
+    if (!this.hud || !this.player) return;
     const quest = this.getGuidedQuest();
     if (!quest) {
-      this.questTargetText.setVisible(false);
+      this.hud.setQuestTarget();
       return;
     }
-
     const targetMapId = getQuestTargetMapId(quest);
     if (targetMapId && targetMapId !== this.currentMapId) {
       const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
       if (portal) {
-        this.questTargetText.setText(this.formatTargetIndicator(portal.x, `前往 ${GAME_MAPS[targetMapId].name}`));
-        this.questTargetText.setVisible(true);
+        this.hud.setQuestTarget(this.formatTargetIndicator(portal.x, `前往 ${GAME_MAPS[targetMapId].name}`));
         return;
       }
     }
-
     const targetX = getQuestTargetX(quest, this.currentMap);
-    if (targetX === undefined) {
-      this.questTargetText.setVisible(false);
-      return;
-    }
-
-    this.questTargetText.setText(this.formatTargetIndicator(targetX, this.getQuestTargetLabel(quest)));
-    this.questTargetText.setVisible(true);
+    this.hud.setQuestTarget(targetX === undefined ? undefined : this.formatTargetIndicator(targetX, this.getQuestTargetLabel(quest)));
   }
 
   private getGuidedQuest() {
@@ -3082,50 +2785,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBossStatusPanel() {
-    if (this.hud) {
-      const boss = this.getCurrentBossStatusTarget();
-      if (!boss) {
-        this.hud.updateBoss();
-        return;
-      }
-      const questHint = this.quests.get(boss.questId)?.status === "active" ? "任務目標" : "危險區域";
-      this.hud.updateBoss({
-        hp: boss.monster.hp,
-        maxHp: boss.monster.maxHp,
-        alive: boss.monster.alive,
-        text: `${boss.name} ${boss.monster.hp}/${boss.monster.maxHp} | ${questHint} | K/J 攻擊`,
-        defeatedText: boss.defeatedText
-      });
-      return;
-    }
-    if (!this.bossHpBack || !this.bossHpFill || !this.bossStatusText) {
-      return;
-    }
-
+    if (!this.hud) return;
     const boss = this.getCurrentBossStatusTarget();
     if (!boss) {
-      this.bossHpBack.setVisible(false);
-      this.bossHpFill.setVisible(false);
-      this.bossStatusText.setVisible(false);
+      this.hud.updateBoss();
       return;
     }
-
-    const hpRatio = boss.monster.maxHp > 0 ? Phaser.Math.Clamp(boss.monster.hp / boss.monster.maxHp, 0, 1) : 0;
-    this.bossHpBack.setVisible(true);
-    this.bossHpFill.setVisible(true).setDisplaySize(280 * hpRatio, 10);
-    this.bossStatusText.setVisible(true);
-
-    if (!boss.monster.alive) {
-      this.bossHpFill.setVisible(false);
-      this.bossStatusText.setText(boss.defeatedText);
-      this.bossStatusText.setColor(ColorText.jade);
-      return;
-    }
-
-    const quest = this.quests.get(boss.questId);
-    const questHint = quest?.status === "active" ? "任務目標" : "危險區域";
-    this.bossStatusText.setText(`${boss.name} ${boss.monster.hp}/${boss.monster.maxHp} | ${questHint} | K/J 攻擊`);
-    this.bossStatusText.setColor(ColorText.gold);
+    const questHint = this.quests.get(boss.questId)?.status === "active" ? "任務目標" : "危險區域";
+    this.hud.updateBoss({
+      hp: boss.monster.hp,
+      maxHp: boss.monster.maxHp,
+      alive: boss.monster.alive,
+      text: `${boss.name} ${boss.monster.hp}/${boss.monster.maxHp} | ${questHint} | K/J 攻擊`,
+      defeatedText: boss.defeatedText
+    });
   }
 
   private getCurrentBossStatusTarget() {
@@ -3434,35 +3107,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showDialogue(text: string) {
-    if (this.hud) {
-      this.hud.showDialogue(text);
-      return;
-    }
-    if (!this.dialogueText) {
-      return;
-    }
-
-    this.dialogueText.setText(text);
-    this.dialogueText.setAlpha(1);
-    this.dialogueText.setVisible(true);
-    this.dialogueBox?.setAlpha(1).setVisible(true);
-
-    this.time.delayedCall(2400, () => {
-      this.tweens.add({
-        targets: this.dialogueText,
-        alpha: 0,
-        duration: 260,
-        onComplete: () => this.dialogueText?.setVisible(false)
-      });
-      if (this.dialogueBox) {
-        this.tweens.add({
-          targets: this.dialogueBox,
-          alpha: 0,
-          duration: 260,
-          onComplete: () => this.dialogueBox?.setVisible(false)
-        });
-      }
-    });
+    this.hud?.showDialogue(text);
   }
 
   private showReward(exp: number, gold: number) {
