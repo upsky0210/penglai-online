@@ -1,49 +1,639 @@
 import Phaser from "phaser";
-import type { GameMapData } from "@penglai/shared";
+import { DEFAULT_GAME_MAP, type GameMapData, type MapInteractableData, type QuestSnapshot } from "@penglai/shared";
+import { mapBackgroundLayers, mistOverlayTextureKey, platformTextureKey } from "./assetManifest";
+import { ColorHex, ColorText, uiFont } from "./uiTheme";
+
+export interface MapRendererOptions {
+  getPlayer: () => Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | undefined;
+  getQuests: () => Map<string, QuestSnapshot>;
+  hasUsableTexture: (key: string) => boolean;
+}
 
 export class MapRenderer {
+  private currentMap: GameMapData = DEFAULT_GAME_MAP;
+  private currentMapId = DEFAULT_GAME_MAP.id;
   private mapObjects: Phaser.GameObjects.GameObject[] = [];
-  private chapterObjects: Phaser.GameObjects.GameObject[] = [];
+  private chapterStateObjects: Phaser.GameObjects.GameObject[] = [];
   private platformColliders: Phaser.Physics.Arcade.Collider[] = [];
   private readonly interactableStatusTexts = new Map<string, Phaser.GameObjects.Text>();
 
-  constructor(private readonly scene: Phaser.Scene) {}
+  constructor(private readonly scene: Phaser.Scene, private readonly options: MapRendererOptions) {}
 
-  rebuild(
-    map: GameMapData,
-    render: () => void,
-    player: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | undefined,
-    x = map.playerSpawn.x,
-    y = map.playerSpawn.y
-  ) {
-    this.clear();
-    this.scene.physics.world.setBounds(0, 0, map.width, map.height);
-    this.scene.cameras.main.setBounds(0, 0, map.width, map.height);
-    this.capture(render);
-    player?.setPosition(x, y).setVelocity(0, 0);
+  private get add() { return this.scene.add; }
+  private get tweens() { return this.scene.tweens; }
+  private get physics() { return this.scene.physics; }
+  private get player() { return this.options.getPlayer(); }
+  private get quests() { return this.options.getQuests(); }
+  private hasUsableTexture(key: string) { return this.options.hasUsableTexture(key); }
+
+  renderPreview(map: GameMapData) {
+    this.clearMapObjects();
+    this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.clearMapObjects());
+    this.currentMap = map;
+    this.currentMapId = map.id;
+    this.captureMapObjects(() => this.addBackground());
   }
 
-  capture(render: () => void) {
+  rebuild(map: GameMapData, x = map.playerSpawn.x, y = map.playerSpawn.y) {
+    this.clearMapObjects();
+    this.currentMap = map;
+    this.currentMapId = map.id;
+    this.physics.world.setBounds(0, 0, map.width, map.height);
+    this.scene.cameras.main.setBounds(0, 0, map.width, map.height);
+    this.captureMapObjects(() => {
+      this.addBackground();
+      this.addNpcs();
+      this.addPlatforms();
+    });
+    this.player?.setPosition(x, y).setVelocity(0, 0);
+  }
+
+  getInteractableStatusText(id: string) { return this.interactableStatusTexts.get(id); }
+
+  private captureMapObjects(render: () => void) {
     const before = new Set(this.scene.children.list);
     render();
     for (const object of this.scene.children.list) if (!before.has(object)) this.mapObjects.push(object);
   }
 
-  clear() {
-    for (const collider of this.platformColliders) collider.destroy();
+  private clearMapObjects() {
+    for (const collider of this.platformColliders) {
+      if (collider.active) collider.destroy();
+    }
     this.platformColliders = [];
-    for (const object of this.mapObjects) object.destroy();
+    for (const object of this.mapObjects) {
+      this.tweens.killTweensOf(object);
+      if (object.scene) object.destroy();
+    }
     this.mapObjects = [];
-    this.clearChapterObjects();
+    this.clearChapterStateObjects();
     this.interactableStatusTexts.clear();
   }
 
-  addPlatformCollider(collider: Phaser.Physics.Arcade.Collider) { this.platformColliders.push(collider); }
-  setInteractableStatusText(id: string, text: Phaser.GameObjects.Text) { this.interactableStatusTexts.set(id, text); }
-  getInteractableStatusText(id: string) { return this.interactableStatusTexts.get(id); }
-  addChapterObject<T extends Phaser.GameObjects.GameObject>(object: T) { this.chapterObjects.push(object); return object; }
-  clearChapterObjects() {
-    for (const object of this.chapterObjects) { this.scene.tweens.killTweensOf(object); object.destroy(); }
-    this.chapterObjects = [];
+  private clearChapterStateObjects() {
+    for (const object of this.chapterStateObjects) {
+      this.tweens.killTweensOf(object);
+      object.destroy();
+    }
+    this.chapterStateObjects = [];
   }
+
+  private addChapterStateObject<T extends Phaser.GameObjects.GameObject>(object: T) {
+    this.chapterStateObjects.push(object);
+    return object;
+  }
+
+  private addBackground() {
+    if (!this.addExternalBackgroundLayers()) {
+      this.addFallbackBackgroundArt();
+    }
+
+    for (const zone of this.currentMap.safeZones) {
+      this.add.rectangle(zone.x, zone.y, zone.width, zone.height, 0x5ac06f, 0.14);
+      this.add.text(zone.x - 52, zone.y - zone.height / 2 + 18, zone.name, {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.jade
+      });
+    }
+    this.addMapLandmarks();
+    for (const portal of this.currentMap.portals) {
+      this.add.circle(portal.x, portal.y - 26, 42, ColorHex.gold, 0.12);
+      this.add.rectangle(portal.x, portal.y - 20, 54, 72, ColorHex.deepTeal, 0.7).setStrokeStyle(2, ColorHex.gold, 0.75);
+      this.add.rectangle(portal.x, portal.y - 54, 6, 110, ColorHex.goldBright, 0.38);
+      this.add.text(portal.x - 42, portal.y - 78, portal.name, {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 3 }
+      });
+    }
+
+    this.add.text(54, 42, this.currentMap.name, {
+      fontFamily: uiFont,
+      fontSize: "26px",
+      color: ColorText.gold,
+      stroke: ColorText.ink,
+      strokeThickness: 4
+    });
+    this.add.text(54, 80, "左上方顯示操作鍵；掉落物碰到會自動拾取。", {
+      fontFamily: uiFont,
+      fontSize: "12px",
+      color: ColorText.sand,
+      fixedWidth: 560,
+      wordWrap: { width: 560 }
+    });
+  }
+
+  private addExternalBackgroundLayers() {
+    const layers = mapBackgroundLayers[this.currentMapId] ?? [];
+    const usableLayers = layers.filter((layer) => this.hasUsableTexture(layer.key));
+    if (usableLayers.length === 0) {
+      return false;
+    }
+
+    const mapCenterX = this.currentMap.width / 2;
+    this.add.rectangle(mapCenterX, 300, this.currentMap.width, 560, 0x15323b).setDepth(-70);
+
+    for (const layer of usableLayers) {
+      this.add
+        .tileSprite(mapCenterX, layer.y, this.currentMap.width, layer.height, layer.key)
+        .setScrollFactor(layer.scrollFactor)
+        .setAlpha(layer.alpha ?? 1)
+        .setDepth(layer.depth);
+    }
+
+    if (this.hasUsableTexture(mistOverlayTextureKey)) {
+      const mist = this.add
+        .tileSprite(mapCenterX, 250, this.currentMap.width, 190, mistOverlayTextureKey)
+        .setScrollFactor(0.62)
+        .setAlpha(0.42)
+        .setDepth(-40);
+      this.tweens.add({
+        targets: mist,
+        tilePositionX: 192,
+        duration: 12000,
+        repeat: -1
+      });
+    }
+
+    return true;
+  }
+
+  private addFallbackBackgroundArt() {
+    const mapCenterX = this.currentMap.width / 2;
+    this.add.rectangle(mapCenterX, 160, this.currentMap.width, 320, 0x15323b).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 300, this.currentMap.width, 90, 0x1a3b3a, 0.55).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 420, this.currentMap.width, 172, 0x1c4034).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 506, this.currentMap.width, 34, 0x32261c).setScrollFactor(1);
+    this.add.rectangle(mapCenterX, 522, this.currentMap.width, 20, ColorHex.woodPlank).setScrollFactor(1);
+
+    for (const x of [160, 540, 940, 1320, 1660, 2060, 2280]) {
+      this.add.circle(x, 88, 32, 0xd9e6e5, 0.18);
+      this.add.circle(x + 30, 78, 24, 0xd9e6e5, 0.12);
+      this.add.circle(x - 28, 80, 20, 0xd9e6e5, 0.1);
+    }
+
+    this.add.rectangle(330, 132, 190, 150, 0x8b4a3a);
+    this.add.rectangle(330, 45, 226, 45, 0x263047);
+    this.add.rectangle(330, 70, 246, 18, 0x1b2238);
+    this.add.rectangle(700, 172, 260, 190, 0x745f45);
+    this.add.rectangle(700, 70, 304, 54, 0x263047);
+    this.add.rectangle(700, 102, 324, 18, 0x1b2238);
+    this.add.rectangle(1510, 190, 120, 250, 0x6b6f7c);
+    this.add.rectangle(1510, 42, 150, 42, 0xf0d68a);
+    this.add.circle(1510, 42, 34, 0xf0d68a, 0.22);
+    this.add.rectangle(2010, 432, 290, 44, 0x315f58);
+    this.add.rectangle(2010, 454, 330, 16, 0x8eb8ac);
+
+    for (const x of [250, 420, 600, 780, 1020, 1280, 1600, 1840, 2140]) {
+      this.add.rectangle(x, 444, 6, 64, ColorHex.woodDark);
+      this.add.circle(x, 402, 26, ColorHex.gold, 0.16);
+      this.add.circle(x, 402, 13, ColorHex.vermilion, 0.95);
+      this.add.circle(x, 400, 6, ColorHex.goldBright, 0.9);
+    }
+  }
+
+  private addMapLandmarks() {
+    if (this.currentMapId === "mist-breakwater") {
+      this.addSignpost(430, 456, "前方：海霧凝膠");
+      this.addSignpost(1040, 456, "往右：潮眼平台");
+      this.addSignpost(1260, 456, "測潮學徒：回收甲片");
+      this.addSignpost(1510, 456, "菁英怪：潮眼守衛");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(620, 364, 260);
+      this.addMistVeil(1120, 338, 300);
+      this.add.rectangle(1580, 392, 330, 110, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.vermilion, 0.35);
+      this.add.circle(1580, 318, 34, ColorHex.goldBright, 0.18);
+      this.add.text(1482, 296, "第一章終點", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "coral-tide-cavern") {
+      this.addSignpost(470, 456, "潮洞蟹群");
+      this.addSignpost(1040, 456, "潮封印");
+      this.addSignpost(1430, 456, "礁光幽影");
+      this.addSignpost(1960, 456, "珊瑚守望者");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(720, 336, 280);
+      this.addMistVeil(1320, 330, 320);
+      this.addMistVeil(1900, 348, 340);
+      this.add.rectangle(2030, 392, 380, 118, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2030, 316, 42, ColorHex.mistBlue, 0.16);
+      this.add.text(1910, 292, "潮洞核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "sunken-archive") {
+      this.addSignpost(500, 456, "沉船漂書");
+      this.addSignpost(1040, 456, "書庫碑");
+      this.addSignpost(1540, 456, "墨潮精靈");
+      this.addSignpost(2140, 456, "書庫守衛");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(780, 334, 300);
+      this.addMistVeil(1400, 328, 340);
+      this.addMistVeil(2100, 350, 360);
+      this.add.rectangle(2240, 392, 410, 120, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2240, 316, 46, ColorHex.mistBlue, 0.14);
+      this.add.text(2110, 292, "書庫核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "starlit-observatory") {
+      this.addSignpost(310, 456, "回報：觀測員阿曜");
+      this.addSignpost(520, 456, "星砂蛾群");
+      this.addSignpost(1120, 456, "觀測鏡");
+      this.addSignpost(1660, 456, "星鏡哨兵");
+      this.addSignpost(2280, 456, "星穹守望者");
+      for (const interactable of this.currentMap.interactables) {
+        this.addInteractableLandmark(interactable);
+      }
+      this.addMistVeil(760, 330, 300);
+      this.addMistVeil(1460, 318, 340);
+      this.addMistVeil(2140, 346, 360);
+      this.add.rectangle(2400, 392, 430, 122, ColorHex.vermilion, 0.08).setStrokeStyle(2, ColorHex.gold, 0.35);
+      this.add.circle(2400, 314, 50, ColorHex.goldBright, 0.12);
+      this.add.text(2276, 290, "星穹核心", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      this.add.text(2050, 348, "先校準三座觀測鏡，再挑戰核心", {
+        fontFamily: uiFont,
+        fontSize: "12px",
+        color: ColorText.parchment,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    if (this.currentMapId === "old-harbor-warehouse") {
+      this.addSignpost(410, 456, "清理倉鼠");
+      this.addSignpost(930, 456, "霧化木偶區");
+      this.addSignpost(1510, 456, "倉庫巡弋者");
+      this.addSignpost(2040, 456, "前往珊瑚潮洞");
+      this.addMistVeil(760, 360, 260);
+      this.addMistVeil(1460, 350, 310);
+      this.add.rectangle(1740, 392, 360, 110, ColorHex.deepTeal, 0.12).setStrokeStyle(2, ColorHex.gold, 0.32);
+      this.add.text(1618, 296, "倉庫深處", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+      return;
+    }
+
+    this.addSignpost(1320, 456, "往右：燈塔營地");
+    this.addSignpost(1600, 456, "往右：潮汐林道");
+    this.addSignpost(1980, 456, "注意：海霧史萊姆");
+    this.addSignpost(2210, 456, "傳送：海霧堤道");
+  }
+
+  private addInteractableLandmark(interactable: MapInteractableData) {
+    if (interactable.kind === "lantern") {
+      this.addBreakwaterLantern(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 32, ColorHex.goldBright, 0.07).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else if (interactable.kind === "tide-gauge") {
+      this.addTideGauge(interactable.x, interactable.y);
+      this.add.circle(interactable.x + 22, interactable.y - 52, 30, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.mistBlue, 0.3);
+    } else if (interactable.kind === "seal") {
+      this.addReefSeal(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else if (interactable.kind === "tablet") {
+      this.addArchiveTablet(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 46, 34, ColorHex.mistBlue, 0.08).setStrokeStyle(1, ColorHex.gold, 0.28);
+    } else {
+      this.addObservatoryLens(interactable.x, interactable.y, interactable.name);
+      this.add.circle(interactable.x, interactable.y - 50, 36, ColorHex.goldBright, 0.08).setStrokeStyle(1, ColorHex.gold, 0.3);
+    }
+
+    const status = this.add.text(interactable.x - 38, interactable.y - 118, "", {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.sand,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.interactableStatusTexts.set(interactable.id, status);
+  }
+
+  private addSignpost(x: number, y: number, text: string) {
+    this.add.rectangle(x, y, 10, 62, ColorHex.woodDark);
+    this.add.rectangle(x + 52, y - 34, 116, 34, ColorHex.woodPlank);
+    this.add.rectangle(x + 52, y - 34, 108, 26, ColorHex.inkGreenDeep).setStrokeStyle(1, ColorHex.gold, 0.5);
+    this.add.text(x + 2, y - 44, text, {
+      fontFamily: uiFont,
+      fontSize: "12px",
+      color: ColorText.parchment,
+      fixedWidth: 104,
+      align: "center",
+      wordWrap: { width: 104 }
+    });
+  }
+
+  private addBreakwaterLantern(x: number, y: number, label: string) {
+    this.add.rectangle(x, y, 7, 66, ColorHex.woodDark);
+    this.add.circle(x, y - 46, 24, ColorHex.goldBright, 0.13);
+    const glow = this.add.circle(x, y - 46, 13, ColorHex.goldBright, 0.3);
+    this.add.circle(x, y - 46, 7, ColorHex.vermilion, 0.95).setStrokeStyle(1, ColorHex.gold, 0.65);
+    this.add.text(x - 34, y - 86, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.gold,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: glow,
+      alpha: 0.08,
+      scale: 1.28,
+      duration: 900,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addTideGauge(x: number, y: number) {
+    this.add.rectangle(x, y - 34, 10, 92, ColorHex.woodDark);
+    this.add.rectangle(x + 24, y - 54, 52, 18, ColorHex.deepTeal, 0.92).setStrokeStyle(1, ColorHex.gold, 0.6);
+    this.add.rectangle(x + 24, y - 47, 34, 4, ColorHex.mistBlue, 0.82);
+    this.add.text(x - 18, y - 92, "潮位尺", {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+  }
+
+  private addReefSeal(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 24, 46, 64, ColorHex.deepTeal, 0.88).setStrokeStyle(2, ColorHex.gold, 0.58);
+    this.add.circle(x, y - 32, 18, ColorHex.mistBlue, 0.18);
+    const pulse = this.add.circle(x, y - 32, 9, ColorHex.goldBright, 0.32);
+    this.add.text(x - 42, y - 92, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.45,
+      duration: 1050,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addArchiveTablet(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 26, 50, 68, 0x253342, 0.9).setStrokeStyle(2, ColorHex.gold, 0.5);
+    this.add.rectangle(x, y - 42, 30, 6, ColorHex.mistBlue, 0.72);
+    this.add.rectangle(x, y - 28, 28, 4, ColorHex.goldBright, 0.64);
+    const pulse = this.add.circle(x, y - 34, 10, ColorHex.mistBlue, 0.3);
+    this.add.text(x - 42, y - 94, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.mistBlue,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.35,
+      duration: 1150,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addObservatoryLens(x: number, y: number, label: string) {
+    this.add.rectangle(x, y - 22, 10, 58, ColorHex.woodDark);
+    this.add.circle(x, y - 52, 24, 0x253342, 0.9).setStrokeStyle(2, ColorHex.gold, 0.62);
+    this.add.circle(x, y - 52, 15, ColorHex.mistBlue, 0.18);
+    const pulse = this.add.circle(x, y - 52, 8, ColorHex.goldBright, 0.34);
+    this.add.rectangle(x + 24, y - 28, 34, 8, ColorHex.woodPlank, 0.86);
+    this.add.text(x - 42, y - 98, label, {
+      fontFamily: uiFont,
+      fontSize: "11px",
+      color: ColorText.gold,
+      backgroundColor: "#10271fcc",
+      padding: { x: 5, y: 3 }
+    });
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0.08,
+      scale: 1.55,
+      duration: 980,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  private addMistVeil(x: number, y: number, width: number) {
+    const veil = this.add.ellipse(x, y, width, 46, 0xd9e6e5, 0.08);
+    const veil2 = this.add.ellipse(x + 44, y - 16, width * 0.64, 34, 0xd9e6e5, 0.06);
+    this.tweens.add({
+      targets: [veil, veil2],
+      x: "+=18",
+      alpha: 0.14,
+      duration: 2400,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  refreshChapterWorldState() {
+    this.clearChapterStateObjects();
+    if (this.currentMapId !== "mist-breakwater") {
+      return;
+    }
+
+    this.addRepairedLanternEffects();
+    this.addWatcherClearEffects();
+    this.addChapterClearEffects();
+  }
+
+  private addRepairedLanternEffects() {
+    const lanternQuest = this.quests.get("breakwater-lantern-repair");
+    if (!lanternQuest || lanternQuest.status === "available") {
+      return;
+    }
+
+    const repaired = new Set(lanternQuest.status === "completed" ? ["lantern-west", "lantern-mid", "lantern-east"] : lanternQuest.interactedTargetIds ?? []);
+    for (const interactable of this.currentMap.interactables) {
+      if (interactable.kind !== "lantern" || !repaired.has(interactable.id)) {
+        continue;
+      }
+
+      const glow = this.addChapterStateObject(
+        this.add.circle(interactable.x, interactable.y - 46, 36, ColorHex.goldBright, 0.18).setDepth(16)
+      );
+      this.addChapterStateObject(
+        this.add.text(interactable.x - 30, interactable.y - 134, "燈已復明", {
+          fontFamily: uiFont,
+          fontSize: "11px",
+          color: ColorText.jade,
+          backgroundColor: "#10271fcc",
+          padding: { x: 5, y: 3 }
+        })
+      );
+      this.tweens.add({
+        targets: glow,
+        alpha: 0.08,
+        scale: 1.22,
+        duration: 1300,
+        yoyo: true,
+        repeat: -1
+      });
+    }
+
+    if (this.currentMapId === "old-harbor-warehouse") {
+      this.addSignpost(410, 456, "清理倉鼠");
+      this.addSignpost(930, 456, "霧化木偶區");
+      this.addSignpost(1510, 456, "倉庫巡弋者");
+      this.addMistVeil(760, 360, 260);
+      this.addMistVeil(1460, 350, 310);
+      this.add.rectangle(1740, 392, 360, 110, ColorHex.deepTeal, 0.12).setStrokeStyle(2, ColorHex.gold, 0.32);
+      this.add.text(1618, 296, "舊倉深處", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.gold,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      });
+    }
+  }
+
+  private addWatcherClearEffects() {
+    const watcher = this.quests.get("tide-watcher-core");
+    const shell = this.quests.get("watcher-shell-report");
+    if (watcher?.status !== "completed" && shell?.status !== "completed") {
+      return;
+    }
+
+    this.addChapterStateObject(
+      this.add.rectangle(1580, 392, 344, 118, ColorHex.jade, 0.08).setStrokeStyle(2, ColorHex.jade, 0.38)
+    );
+    this.addChapterStateObject(this.add.circle(1580, 318, 42, ColorHex.jade, 0.16));
+    this.addChapterStateObject(
+      this.add.text(1504, 272, "潮眼已平定", {
+        fontFamily: uiFont,
+        fontSize: "13px",
+        color: ColorText.jade,
+        backgroundColor: "#10271fcc",
+        padding: { x: 6, y: 4 }
+      })
+    );
+  }
+
+  private addChapterClearEffects() {
+    if (!this.isChapterOneCleared()) {
+      return;
+    }
+
+    this.addChapterStateObject(this.add.rectangle(900, 296, 1540, 42, ColorHex.jade, 0.06));
+    this.addChapterStateObject(
+      this.add.text(760, 274, "海霧穩定，第一章完成", {
+        fontFamily: uiFont,
+        fontSize: "15px",
+        color: ColorText.jade,
+        backgroundColor: "#10271fcc",
+        padding: { x: 8, y: 5 }
+      })
+    );
+  }
+
+  private isChapterOneCleared() {
+    return this.quests.get("tide-gauge-survey")?.status === "completed";
+  }
+
+  private addNpcs() {
+    for (const npc of this.currentMap.npcs) {
+      // Keep NPC body + nameplate above map background/foreground art so labels are never covered.
+      this.add.ellipse(npc.x, npc.y - 2, 30, 10, ColorHex.shadow, 0.4).setDepth(28);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, ColorHex.teal).setDepth(30);
+      this.add.rectangle(npc.x, npc.y - 24, 24, 44, 0x000000, 0).setStrokeStyle(1, ColorHex.gold, 0.4).setDepth(30);
+      this.add.rectangle(npc.x, npc.y - 50, 34, 10, ColorHex.gold).setDepth(30);
+      this.add.circle(npc.x, npc.y - 54, 10, 0xf2c078).setDepth(30);
+      this.add
+        .text(npc.x - 42, npc.y - 86, npc.name, {
+          fontFamily: uiFont,
+          fontSize: "12px",
+          color: ColorText.gold,
+          backgroundColor: "#10271f",
+          padding: { x: 6, y: 3 }
+        })
+        .setDepth(46);
+    }
+  }
+
+  private addPlatforms() {
+    if (!this.player) {
+      return;
+    }
+
+    for (const platformData of this.currentMap.platforms) {
+      if (this.hasUsableTexture(platformTextureKey)) {
+        this.add
+          .tileSprite(platformData.x, platformData.y, platformData.width, platformData.height, platformTextureKey)
+          .setDepth(18);
+        this.add
+          .rectangle(platformData.x, platformData.y - platformData.height / 2 + 3, platformData.width, 4, ColorHex.jade, 0.72)
+          .setDepth(19);
+      } else {
+        this.add.rectangle(platformData.x, platformData.y, platformData.width, platformData.height, 0x67442b);
+        this.add.rectangle(platformData.x, platformData.y - platformData.height / 2 + 3, platformData.width, 6, 0x2f7d44);
+      }
+
+      const platform = this.add.rectangle(
+        platformData.x,
+        platformData.y,
+        platformData.width,
+        platformData.height,
+        0x000000,
+        0
+      );
+      this.physics.add.existing(platform, true);
+
+      const body = platform.body as Phaser.Physics.Arcade.StaticBody;
+      body.setSize(platformData.width, platformData.height);
+      body.updateFromGameObject();
+      const collider = this.physics.add.collider(this.player, platform);
+      this.platformColliders.push(collider);
+    }
+  }
+
 }
