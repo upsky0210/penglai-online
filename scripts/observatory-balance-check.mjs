@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 const sharedSource = readFileSync("shared/src/index.ts", "utf8");
-const serverSource = readFileSync("server/src/index.ts", "utf8");
+const serverSource = readFileSync("server/src/gameServer.ts", "utf8");
 
 function assertIncludes(source, expected, label) {
   if (!source.includes(expected)) {
