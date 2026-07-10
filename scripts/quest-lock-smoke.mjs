@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { moveSmokePlayer } from "./smoke-movement.mjs";
 
 const wsUrl = process.env.SMOKE_WS_URL ?? "ws://localhost:8787";
 
@@ -11,6 +12,9 @@ function connectClient() {
     const ws = new WebSocket(`${wsUrl}?slot=quest-lock-smoke-${Date.now()}`);
     const state = {
       playerId: "",
+      mapId: "fog-harbor-test",
+      x: 280,
+      y: 430,
       notices: []
     };
     const timer = setTimeout(() => {
@@ -30,6 +34,22 @@ function connectClient() {
       if (message.type === "quest:notice") {
         state.notices.push(message.text);
       }
+
+      if (message.type === "map:change") {
+        state.mapId = message.mapId;
+        state.x = message.x;
+        state.y = message.y;
+      }
+
+
+      if (message.type === "world:snapshot") {
+        const self = message.players.find((player) => player.id === state.playerId);
+        if (self) {
+          state.mapId = self.mapId;
+          state.x = self.x;
+          state.y = self.y;
+        }
+      }
     });
 
     ws.on("error", (error) => {
@@ -39,33 +59,17 @@ function connectClient() {
   });
 }
 
-function sendPlayerUpdate(ws, state, mapId, x, y) {
-  ws.send(
-    JSON.stringify({
-      type: "player:update",
-      player: {
-        id: state.playerId,
-        name: "任務鎖測",
-        className: "swordsman",
-        mapId,
-        x,
-        y,
-        facing: "right",
-        animation: "idle"
-      }
-    })
-  );
+function movePlayer(ws, state, mapId, x, y) {
+  return moveSmokePlayer(ws, state, { mapId, x, y, name: "任務鎖測", className: "swordsman" });
 }
 
 const { ws, state } = await connectClient();
 
-sendPlayerUpdate(ws, state, "fog-harbor-test", 1385, 455);
-await wait(120);
+await movePlayer(ws, state, "fog-harbor-test", 1385, 455);
 ws.send(JSON.stringify({ type: "portal:enter", portalId: "to-old-warehouse" }));
 await wait(500);
 
-sendPlayerUpdate(ws, state, "old-harbor-warehouse", 220, 466);
-await wait(120);
+await movePlayer(ws, state, "old-harbor-warehouse", 220, 466);
 ws.send(JSON.stringify({ type: "npc:interact", npcId: "warehouse-keeper" }));
 await wait(500);
 
@@ -77,4 +81,3 @@ if (!lockNotice) {
 }
 
 console.log("Quest lock smoke passed: warehouse quest is locked before chapter prerequisite.");
-

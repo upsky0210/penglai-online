@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { moveSmokePlayer } from "./smoke-movement.mjs";
 
 const wsUrl = process.env.SMOKE_WS_URL ?? "ws://localhost:8787";
 
@@ -11,6 +12,9 @@ function connectClient() {
     const ws = new WebSocket(`${wsUrl}?slot=warehouse-smoke-${Date.now()}`);
     const state = {
       playerId: "",
+      mapId: "fog-harbor-test",
+      x: 280,
+      y: 430,
       mapChanges: []
     };
     const timer = setTimeout(() => {
@@ -28,7 +32,19 @@ function connectClient() {
       }
 
       if (message.type === "map:change") {
+        state.mapId = message.mapId;
+        state.x = message.x;
+        state.y = message.y;
         state.mapChanges.push(message.mapId);
+      }
+
+      if (message.type === "world:snapshot") {
+        const self = message.players.find((player) => player.id === state.playerId);
+        if (self) {
+          state.mapId = self.mapId;
+          state.x = self.x;
+          state.y = self.y;
+        }
       }
     });
 
@@ -39,33 +55,17 @@ function connectClient() {
   });
 }
 
-function sendPlayerUpdate(ws, state, mapId, x, y) {
-  ws.send(
-    JSON.stringify({
-      type: "player:update",
-      player: {
-        id: state.playerId,
-        name: "倉庫煙測",
-        className: "swordsman",
-        mapId,
-        x,
-        y,
-        facing: "right",
-        animation: "idle"
-      }
-    })
-  );
+function movePlayer(ws, state, mapId, x, y) {
+  return moveSmokePlayer(ws, state, { mapId, x, y, name: "倉庫煙測", className: "swordsman" });
 }
 
 const { ws, state } = await connectClient();
 
-sendPlayerUpdate(ws, state, "fog-harbor-test", 1385, 455);
-await wait(120);
+await movePlayer(ws, state, "fog-harbor-test", 1385, 455);
 ws.send(JSON.stringify({ type: "portal:enter", portalId: "to-old-warehouse" }));
 await wait(500);
 
-sendPlayerUpdate(ws, state, "old-harbor-warehouse", 70, 455);
-await wait(120);
+await movePlayer(ws, state, "old-harbor-warehouse", 70, 455);
 ws.send(JSON.stringify({ type: "portal:enter", portalId: "to-fog-harbor" }));
 await wait(500);
 
@@ -80,4 +80,3 @@ if (!state.mapChanges.includes("fog-harbor-test")) {
 }
 
 console.log("Warehouse smoke passed: fog harbor <-> old harbor warehouse portals.");
-

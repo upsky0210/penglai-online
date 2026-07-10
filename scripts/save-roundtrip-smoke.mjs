@@ -80,6 +80,23 @@ function sendPlayerUpdate(ws, state, mapId, x, y) {
   );
 }
 
+async function movePlayer(ws, state, mapId, targetX, targetY) {
+  const current = latestSelf(state);
+  if (!current || current.mapId !== mapId) {
+    fail(`cannot move without current ${mapId} snapshot: ${JSON.stringify(current)}`);
+  }
+
+  let x = current.x;
+  let y = current.y;
+  while (Math.abs(targetX - x) > 1 || Math.abs(targetY - y) > 1) {
+    x += Math.sign(targetX - x) * Math.min(20, Math.abs(targetX - x));
+    y += Math.sign(targetY - y) * Math.min(45, Math.abs(targetY - y));
+    sendPlayerUpdate(ws, state, mapId, x, y);
+    await wait(100);
+  }
+  await wait(150);
+}
+
 function latestSelf(state) {
   for (let i = state.snapshots.length - 1; i >= 0; i -= 1) {
     const self = state.snapshots[i].players.find((player) => player.id === state.playerId);
@@ -139,15 +156,14 @@ function cleanupSlot(slotName) {
 
 // Phase 1: fresh slot, travel to a non-default map, stand at an in-bounds spot.
 const first = await connectClient(slot);
-sendPlayerUpdate(first.ws, first.state, "fog-harbor-test", 1385, 455);
-await wait(150);
+await wait(250);
+await movePlayer(first.ws, first.state, "fog-harbor-test", 1385, 455);
 first.ws.send(JSON.stringify({ type: "portal:enter", portalId: "to-old-warehouse" }));
 await wait(400);
 if (!first.state.mapChanges.some((change) => change.mapId === TARGET_MAP)) {
   fail(`never entered ${TARGET_MAP}: ${JSON.stringify(first.state.mapChanges)}`);
 }
-sendPlayerUpdate(first.ws, first.state, TARGET_MAP, TARGET_X, TARGET_Y);
-await wait(400);
+await movePlayer(first.ws, first.state, TARGET_MAP, TARGET_X, TARGET_Y);
 const before = latestSelf(first.state);
 if (!before || before.mapId !== TARGET_MAP) {
   fail(`server did not place player on ${TARGET_MAP} before disconnect: ${JSON.stringify(before)}`);

@@ -15,6 +15,7 @@ import {
   SHOP_DEFINITIONS,
   SKILL_DEFINITIONS,
   getGameMap,
+  isClientMessage,
   type CharacterClass,
   type ClientMessage,
   type EquipmentSnapshot,
@@ -59,6 +60,8 @@ import {
   updateTestFeedbackStatus,
   upsertGoogleAccount,
   type FeedbackStatus,
+  type SaveGameInput,
+  type SavedGame,
   type SavedQuest
 } from "./persistence.js";
 
@@ -76,7 +79,7 @@ const googleAuth = new GoogleAuthVerifier(googleClientId, allowedGoogleHostedDom
 const httpServer = createServer((request, response) => {
   void handleHttpRequest(request, response);
 });
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, maxPayload: 16 * 1024 });
 const players = new Map<string, PlayerSnapshot>();
 const sockets = new Map<string, WebSocket>();
 const monsters = new Map<string, MonsterSnapshot>();
@@ -95,7 +98,20 @@ const playerChatReadyAt = new Map<string, number>();
 const playerReturnSafeReadyAt = new Map<string, number>();
 const mutedPlayers = new Map<string, { reason: string; mutedAt: number }>();
 const recentAttacks = new Map<string, number>();
-const dirtyPlayerSaves = new Set<string>();
+const playerIdentityLocked = new Set<string>();
+const playerMovementStates = new Map<
+  string,
+  { horizontalBudget: number; verticalBudget: number; lastRefillAt: number }
+>();
+interface PendingPlayerSave {
+  saveSlot: string;
+  data: SaveGameInput;
+  firstQueuedAt: number;
+  attempts: number;
+  lastAttemptAt?: number;
+}
+const pendingPlayerSaves = new Map<string, PendingPlayerSave>();
+const simulatedSaveFailureSlots = new Set<string>();
 let lastWorldTickAt = Date.now();
 let classroomChatLocked = false;
 let classroomChatLockMessage = "課堂聊天已暫停，請聽老師說明。";
@@ -111,11 +127,29 @@ const monsterChaseSpeedMultiplier = 1.7;
 const monsterChaseLeash = 140;
 const playerRespawnDelayMs = 1500;
 const saveFlushIntervalMs = 2000;
+const playerHorizontalSpeed = 245;
+const playerVerticalSpeed = 650;
+const playerHorizontalBurst = 110;
+const playerVerticalBurst = 180;
 const playerRespawnInvulnerableMs = 1200;
 const itemPickupRange = 72;
 const itemDropLifetimeMs = 60_000;
 const chatCooldownMs = 1200;
 const returnSafeCooldownMs = 15_000;
+const simulatedSaveFailureSlotPrefix = process.env.PENGLAI_TEST_FAIL_SAVE_ONCE_SLOT_PREFIX ?? "";
+const messageValidationStats = {
+  invalidMessages: 0,
+  rejectedMapChanges: 0,
+  rejectedMovements: 0,
+  rejectedIdentityChanges: 0
+};
+const saveFlushStats = {
+  attempts: 0,
+  successes: 0,
+  failures: 0,
+  lastSuccessAt: 0,
+  lastFailureAt: 0
+};
 const equipmentDropChances: Partial<Record<ItemId, number>> = {
   "training-sword": 0.18,
   "cloth-vest": 0.24,
@@ -262,6 +296,45 @@ function clampCoordinate(value: number | undefined, max: number, fallback: numbe
   }
 
   return Math.max(0, Math.min(value, max));
+}
+
+function resetPlayerMovementState(playerId: string, now = Date.now()) {
+  playerMovementStates.set(playerId, {
+    horizontalBudget: playerHorizontalBurst,
+    verticalBudget: playerVerticalBurst,
+    lastRefillAt: now
+  });
+}
+
+function acceptPlayerMovement(playerId: string, player: PlayerSnapshot, requestedX: number, requestedY: number) {
+  const now = Date.now();
+  const map = getPlayerMap(player);
+  const targetX = clampCoordinate(requestedX, map.width, player.x);
+  const targetY = clampCoordinate(requestedY, map.height, player.y);
+  const state = playerMovementStates.get(playerId) ?? {
+    horizontalBudget: playerHorizontalBurst,
+    verticalBudget: playerVerticalBurst,
+    lastRefillAt: now
+  };
+  const elapsedSeconds = Math.max(0, now - state.lastRefillAt) / 1000;
+  state.horizontalBudget = Math.min(
+    playerHorizontalBurst,
+    state.horizontalBudget + elapsedSeconds * playerHorizontalSpeed
+  );
+  state.verticalBudget = Math.min(playerVerticalBurst, state.verticalBudget + elapsedSeconds * playerVerticalSpeed);
+  state.lastRefillAt = now;
+  playerMovementStates.set(playerId, state);
+
+  const deltaX = Math.abs(targetX - player.x);
+  const deltaY = Math.abs(targetY - player.y);
+  if (deltaX > state.horizontalBudget + 1 || deltaY > state.verticalBudget + 1) {
+    messageValidationStats.rejectedMovements += 1;
+    return undefined;
+  }
+
+  state.horizontalBudget = Math.max(0, state.horizontalBudget - deltaX);
+  state.verticalBudget = Math.max(0, state.verticalBudget - deltaY);
+  return { x: targetX, y: targetY };
 }
 
 function createInitialQuests(): Map<string, QuestSnapshot> {
@@ -499,6 +572,18 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
 
   if (url.pathname === "/debug/broadcast-stats" && request.method === "GET") {
     sendBroadcastStats(response);
+    return;
+  }
+
+  if (url.pathname === "/debug/reliability-stats" && request.method === "GET") {
+    sendJson(response, 200, {
+      messages: messageValidationStats,
+      saves: {
+        ...saveFlushStats,
+        queued: pendingPlayerSaves.size,
+        oldestQueuedMs: getOldestPendingSaveAge()
+      }
+    });
     return;
   }
 
@@ -1538,44 +1623,136 @@ function syncPlayerStats(playerId: string) {
   });
 }
 
-function persistPlayerGame(playerId: string) {
+function createPlayerSaveSnapshot(playerId: string) {
   const saveSlot = playerSaveSlots.get(playerId);
   const player = players.get(playerId);
   if (!saveSlot || !player) {
-    dirtyPlayerSaves.delete(playerId);
-    return false;
+    return undefined;
   }
 
-  saveGame(saveSlot, {
-    player,
-    inventory: getInventorySlots(playerId),
-    equipment: getEquipment(playerId),
-    quests: [...(playerQuests.get(playerId)?.values() ?? [])]
-  });
-  dirtyPlayerSaves.delete(playerId);
-  return true;
+  const data: SaveGameInput = {
+    player: { ...player },
+    identityLocked: playerIdentityLocked.has(playerId),
+    inventory: getInventorySlots(playerId).map((slot) => ({ ...slot })),
+    equipment: { ...getEquipment(playerId) },
+    quests: [...(playerQuests.get(playerId)?.values() ?? [])].map((quest) => ({
+      ...quest,
+      prerequisiteQuestIds: quest.prerequisiteQuestIds ? [...quest.prerequisiteQuestIds] : undefined,
+      objective: { ...quest.objective },
+      interactedTargetIds: quest.interactedTargetIds ? [...quest.interactedTargetIds] : undefined
+    }))
+  };
+  return { saveSlot, data };
 }
 
 function savePlayerGame(playerId: string) {
-  if (!playerSaveSlots.has(playerId) || !players.has(playerId)) {
-    return;
+  const snapshot = createPlayerSaveSnapshot(playerId);
+  if (!snapshot) {
+    return undefined;
   }
 
-  dirtyPlayerSaves.add(playerId);
+  const existing = pendingPlayerSaves.get(snapshot.saveSlot);
+  pendingPlayerSaves.set(snapshot.saveSlot, {
+    saveSlot: snapshot.saveSlot,
+    data: snapshot.data,
+    firstQueuedAt: existing?.firstQueuedAt ?? Date.now(),
+    attempts: existing?.attempts ?? 0,
+    lastAttemptAt: existing?.lastAttemptAt
+  });
+  return snapshot.saveSlot;
 }
 
 function flushPlayerGame(playerId: string) {
-  return persistPlayerGame(playerId);
+  const saveSlot = savePlayerGame(playerId);
+  return saveSlot ? flushPendingPlayerSave(saveSlot) : false;
 }
 
 function flushDirtyPlayerGames() {
-  for (const playerId of [...dirtyPlayerSaves]) {
+  let failures = 0;
+  for (const saveSlot of [...pendingPlayerSaves.keys()]) {
     try {
-      persistPlayerGame(playerId);
+      flushPendingPlayerSave(saveSlot);
     } catch (error) {
-      console.error(`Failed to flush save for player ${playerId}`, error);
+      failures += 1;
+      console.error(`Failed to flush save slot ${saveSlot}`, error);
     }
   }
+  return failures;
+}
+
+function flushPendingPlayerSave(saveSlot: string) {
+  const pending = pendingPlayerSaves.get(saveSlot);
+  if (!pending) {
+    return true;
+  }
+
+  pending.attempts += 1;
+  pending.lastAttemptAt = Date.now();
+  saveFlushStats.attempts += 1;
+
+  try {
+    if (
+      simulatedSaveFailureSlotPrefix &&
+      saveSlot.startsWith(simulatedSaveFailureSlotPrefix) &&
+      !simulatedSaveFailureSlots.has(saveSlot)
+    ) {
+      simulatedSaveFailureSlots.add(saveSlot);
+      throw new Error("Simulated one-time save failure for reliability smoke");
+    }
+    saveGame(saveSlot, pending.data);
+    if (pendingPlayerSaves.get(saveSlot) === pending) {
+      pendingPlayerSaves.delete(saveSlot);
+    }
+    saveFlushStats.successes += 1;
+    saveFlushStats.lastSuccessAt = Date.now();
+    return true;
+  } catch (error) {
+    saveFlushStats.failures += 1;
+    saveFlushStats.lastFailureAt = Date.now();
+    throw error;
+  }
+}
+
+function getPendingSavedGame(saveSlot: string): SavedGame | undefined {
+  const data = pendingPlayerSaves.get(saveSlot)?.data;
+  if (!data) {
+    return undefined;
+  }
+
+  return {
+    character: {
+      name: data.player.name,
+      className: data.player.className,
+      identityLocked: data.identityLocked,
+      level: data.player.level,
+      exp: data.player.exp,
+      expToNext: data.player.expToNext,
+      gold: data.player.gold,
+      hp: data.player.hp,
+      mp: data.player.mp,
+      mapId: data.player.mapId,
+      x: data.player.x,
+      y: data.player.y,
+      facing: data.player.facing
+    },
+    inventory: data.inventory.map((slot) => ({ ...slot })),
+    equipment: { ...data.equipment },
+    quests: data.quests.map((quest) => ({
+      questId: quest.id,
+      status: quest.status,
+      progress: quest.progress,
+      interactedTargetIds: [...(quest.interactedTargetIds ?? [])]
+    }))
+  };
+}
+
+function getOldestPendingSaveAge() {
+  if (pendingPlayerSaves.size === 0) {
+    return 0;
+  }
+
+  const oldestQueuedAt = Math.min(...[...pendingPlayerSaves.values()].map((pending) => pending.firstQueuedAt));
+  return Date.now() - oldestQueuedAt;
 }
 
 // 廣播成本計數器:僅供 smoke:broadcast-budget 讀取(/debug/broadcast-stats),不影響遊戲邏輯。
@@ -1834,6 +2011,7 @@ function tickPlayerRespawns(now: number) {
       animation: "idle",
       updatedAt: now
     });
+    resetPlayerMovementState(playerId, now);
     playerRespawnAt.delete(playerId);
     playerDamageCooldownUntil.set(playerId, now + playerRespawnInvulnerableMs);
     playerInvulnerableUntil.set(playerId, now + playerRespawnInvulnerableMs);
@@ -2349,6 +2527,7 @@ function handlePortalEnter(playerId: string, portalId: string) {
     updatedAt: Date.now()
   };
   players.set(playerId, nextPlayer);
+  resetPlayerMovementState(playerId, nextPlayer.updatedAt);
   playerInvulnerableUntil.set(playerId, Date.now() + playerRespawnInvulnerableMs);
   sendToPlayer(playerId, {
     type: "map:change",
@@ -2388,6 +2567,7 @@ function handleReturnSafe(playerId: string) {
     updatedAt: now
   };
   players.set(playerId, nextPlayer);
+  resetPlayerMovementState(playerId, now);
   playerReturnSafeReadyAt.set(playerId, now + returnSafeCooldownMs);
   playerInvulnerableUntil.set(playerId, now + playerRespawnInvulnerableMs);
   sendToPlayer(playerId, {
@@ -2588,7 +2768,6 @@ function handleNpcInteract(playerId: string, npcId: string) {
       playerId,
       `${getNpc(player, npcId)?.name ?? shop.name}：${itemName} x${offer?.quantity ?? 1} 售價 ${offer?.priceGold ?? 0} 金幣。按 N 選商品，按 B 購買。`
     );
-    return;
   }
 
   const quests = playerQuests.get(playerId);
@@ -2895,6 +3074,11 @@ setInterval(() => {
 }, 5000);
 
 wss.on("connection", (ws, request) => {
+  ws.on("error", () => {
+    // Oversized/malformed frames and abrupt network failures must not become
+    // unhandled EventEmitter errors that terminate the classroom server.
+    messageValidationStats.invalidMessages += 1;
+  });
   const playerId = randomUUID();
   const authSession = getAuthSession(getSessionId(request.url));
   const fallbackSaveSlot = authSession ? `account-${authSession.accountId.slice(5, 13)}` : playerId;
@@ -2905,7 +3089,9 @@ wss.on("connection", (ws, request) => {
   if (authSession) {
     bindAccountSaveSlot(authSession.accountId, saveSlot);
   }
-  const savedGame = loadGame(saveSlot);
+  // If a previous disconnect is still waiting for a successful DB retry, restore
+  // from that in-memory snapshot instead of loading an older row and overwriting it.
+  const savedGame = getPendingSavedGame(saveSlot) ?? loadGame(saveSlot);
   const savedCharacter = savedGame.character;
   const savedClassName = isCharacterClass(savedCharacter?.className) ? savedCharacter.className : "swordsman";
   const maxHp = getMaxHp(playerId, savedClassName);
@@ -2954,6 +3140,10 @@ wss.on("connection", (ws, request) => {
     defense: getDefense(playerId, savedClassName),
     updatedAt: Date.now()
   });
+  if (savedCharacter?.identityLocked) {
+    playerIdentityLocked.add(playerId);
+  }
+  resetPlayerMovementState(playerId);
   playerQuests.set(playerId, createQuestsFromSave(savedGame.quests));
   inventories.set(playerId, createInventoryFromSave(savedGame.inventory));
   playerSkillReadyAt.set(playerId, new Map());
@@ -2990,13 +3180,20 @@ wss.on("connection", (ws, request) => {
   broadcastWorldSnapshots();
 
   ws.on("message", (raw) => {
-    let message: ClientMessage;
+    let parsedMessage: unknown;
 
     try {
-      message = JSON.parse(raw.toString()) as ClientMessage;
+      parsedMessage = JSON.parse(raw.toString());
     } catch {
+      messageValidationStats.invalidMessages += 1;
       return;
     }
+
+    if (!isClientMessage(parsedMessage)) {
+      messageValidationStats.invalidMessages += 1;
+      return;
+    }
+    const message = parsedMessage;
 
     if (message.type === "player:update") {
       const current = players.get(playerId);
@@ -3008,8 +3205,24 @@ wss.on("connection", (ws, request) => {
         return;
       }
 
-      const nextName = normalizePlayerName(message.player.name);
-      const nextClassName = isCharacterClass(message.player.className) ? message.player.className : current.className;
+      if (message.player.mapId !== current.mapId) {
+        messageValidationStats.rejectedMapChanges += 1;
+        return;
+      }
+
+      const acceptedPosition = acceptPlayerMovement(playerId, current, message.player.x, message.player.y);
+      if (!acceptedPosition) {
+        return;
+      }
+
+      const requestedName = normalizePlayerName(message.player.name);
+      const requestedClassName = message.player.className;
+      const identityLocked = playerIdentityLocked.has(playerId);
+      if (identityLocked && (requestedName !== current.name || requestedClassName !== current.className)) {
+        messageValidationStats.rejectedIdentityChanges += 1;
+      }
+      const nextName = identityLocked ? current.name : requestedName;
+      const nextClassName = identityLocked ? current.className : requestedClassName;
       const identityChanged = nextName !== current.name || nextClassName !== current.className;
       const maxHp = getMaxHp(playerId, nextClassName);
       const maxMp = getMaxMp(playerId, nextClassName);
@@ -3025,12 +3238,15 @@ wss.on("connection", (ws, request) => {
         maxMp,
         attack: getAttack(playerId, nextClassName),
         defense: getDefense(playerId, nextClassName),
-        x: message.player.x,
-        y: message.player.y,
+        x: acceptedPosition.x,
+        y: acceptedPosition.y,
         facing: message.player.facing,
         animation: message.player.animation,
         updatedAt: Date.now()
       });
+      if (!identityLocked) {
+        playerIdentityLocked.add(playerId);
+      }
       if (identityChanged) {
         sendEquipment(playerId);
         savePlayerGame(playerId);
@@ -3132,11 +3348,10 @@ wss.on("connection", (ws, request) => {
   });
 
   ws.on("close", () => {
-    savePlayerGame(playerId);
     try {
       flushPlayerGame(playerId);
     } catch (error) {
-      console.error(`Failed to flush save for disconnected player ${playerId}`, error);
+      console.error(`Failed to flush save for disconnected player ${playerId}; queued for retry`, error);
     }
     sockets.delete(playerId);
     players.delete(playerId);
@@ -3149,6 +3364,8 @@ wss.on("connection", (ws, request) => {
     playerChatReadyAt.delete(playerId);
     playerReturnSafeReadyAt.delete(playerId);
     mutedPlayers.delete(playerId);
+    playerIdentityLocked.delete(playerId);
+    playerMovementStates.delete(playerId);
     playerRespawnAt.delete(playerId);
     playerDamageCooldownUntil.delete(playerId);
     playerInvulnerableUntil.delete(playerId);

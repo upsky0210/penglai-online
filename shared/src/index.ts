@@ -2186,6 +2186,92 @@ export type ClientMessage =
       text: string;
     };
 
+const characterClassValues = new Set<CharacterClass>(["swordsman", "talisman", "hunter"]);
+const facingValues = new Set<Facing>(["left", "right"]);
+const playerAnimationValues = new Set<PlayerAnimation>(["idle", "run", "jump", "attack", "skill"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isBoundedString(value: unknown, maxLength: number) {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength;
+}
+
+function isKnownRecordKey<T extends string>(record: Record<T, unknown>, value: unknown): value is T {
+  return typeof value === "string" && Object.hasOwn(record, value);
+}
+
+function isPlayerUpdatePayload(value: unknown): value is PlayerUpdatePayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isBoundedString(value.id, 128) &&
+    typeof value.name === "string" &&
+    value.name.length <= 64 &&
+    characterClassValues.has(value.className as CharacterClass) &&
+    isKnownRecordKey(GAME_MAPS, value.mapId) &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y) &&
+    facingValues.has(value.facing as Facing) &&
+    playerAnimationValues.has(value.animation as PlayerAnimation)
+  );
+}
+
+/**
+ * Runtime boundary for untrusted WebSocket input. TypeScript types disappear at
+ * runtime, so the server must call this before narrowing a parsed JSON value to
+ * ClientMessage.
+ */
+export function isClientMessage(value: unknown): value is ClientMessage {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return false;
+  }
+
+  switch (value.type) {
+    case "player:update":
+      return isPlayerUpdatePayload(value.player);
+    case "combat:attack":
+      return (
+        isBoundedString(value.attackId, 160) &&
+        typeof value.isSkill === "boolean" &&
+        (value.isSkill
+          ? isKnownRecordKey(SKILL_DEFINITIONS, value.skillId)
+          : value.skillId === undefined || isKnownRecordKey(SKILL_DEFINITIONS, value.skillId))
+      );
+    case "item:pickup":
+      return isBoundedString(value.dropId, 160);
+    case "inventory:use":
+    case "inventory:equip":
+      return isKnownRecordKey(ITEM_DEFINITIONS, value.itemId);
+    case "shop:buy":
+      return (
+        isBoundedString(value.npcId, 128) &&
+        isKnownRecordKey(ITEM_DEFINITIONS, value.itemId) &&
+        typeof value.quantity === "number" &&
+        Number.isInteger(value.quantity) &&
+        value.quantity >= 1 &&
+        value.quantity <= 20
+      );
+    case "npc:interact":
+      return isBoundedString(value.npcId, 128);
+    case "map:interact":
+      return isBoundedString(value.interactableId, 128);
+    case "portal:enter":
+      return isBoundedString(value.portalId, 128);
+    case "player:return-safe":
+      return true;
+    case "chat:send":
+      return typeof value.text === "string" && value.text.length <= 160;
+    default:
+      return false;
+  }
+}
+
 export type ServerMessage =
   | {
       type: "session:welcome";

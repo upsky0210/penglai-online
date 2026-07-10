@@ -17,6 +17,7 @@ import type {
 export interface SavedCharacter {
   name: string;
   className: CharacterClass;
+  identityLocked: boolean;
   level: number;
   exp: number;
   expToNext: number;
@@ -47,6 +48,7 @@ export interface SavedGame {
 
 export interface SaveGameInput {
   player: PlayerSnapshot;
+  identityLocked: boolean;
   inventory: InventorySlot[];
   equipment: EquipmentSnapshot;
   quests: QuestSnapshot[];
@@ -55,6 +57,7 @@ export interface SaveGameInput {
 interface CharacterRow {
   name: string;
   class_name: CharacterClass;
+  identity_locked: number;
   level: number;
   exp: number;
   exp_to_next: number;
@@ -364,6 +367,7 @@ db.exec(`
     save_slot TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     class_name TEXT NOT NULL,
+    identity_locked INTEGER NOT NULL DEFAULT 0,
     level INTEGER NOT NULL,
     exp INTEGER NOT NULL,
     exp_to_next INTEGER NOT NULL,
@@ -522,12 +526,16 @@ addColumnIfMissing("test_feedback", "admin_note", "TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("test_feedback", "updated_at", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("quest_states", "interacted_target_ids", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("characters", "map_id", "TEXT NOT NULL DEFAULT ''");
+// Rows created before identity locking already represent established players.
+// New schemas default to 0 above so a brand-new title-screen connection can
+// still choose its name/class exactly once.
+addColumnIfMissing("characters", "identity_locked", "INTEGER NOT NULL DEFAULT 1");
 
 export function loadGame(saveSlot: string): SavedGame {
   const character = db
     .prepare(
       `
-        SELECT name, class_name, level, exp, exp_to_next, gold, hp, mp, map_id, x, y, facing
+        SELECT name, class_name, identity_locked, level, exp, exp_to_next, gold, hp, mp, map_id, x, y, facing
         FROM characters
         WHERE save_slot = ?
       `
@@ -581,6 +589,7 @@ export function loadGame(saveSlot: string): SavedGame {
       ? {
           name: character.name,
           className: character.class_name,
+          identityLocked: character.identity_locked === 1,
           level: character.level,
           exp: character.exp,
           expToNext: character.exp_to_next,
@@ -618,6 +627,7 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
           save_slot,
           name,
           class_name,
+          identity_locked,
           level,
           exp,
           exp_to_next,
@@ -630,10 +640,11 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
           facing,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(save_slot) DO UPDATE SET
           name = excluded.name,
           class_name = excluded.class_name,
+          identity_locked = excluded.identity_locked,
           level = excluded.level,
           exp = excluded.exp,
           exp_to_next = excluded.exp_to_next,
@@ -650,6 +661,7 @@ export function saveGame(saveSlot: string, data: SaveGameInput) {
       saveSlot,
       data.player.name,
       data.player.className,
+      data.identityLocked ? 1 : 0,
       data.player.level,
       data.player.exp,
       data.player.expToNext,

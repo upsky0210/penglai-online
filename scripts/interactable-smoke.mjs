@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { moveSmokePlayer } from "./smoke-movement.mjs";
 
 const wsUrl = process.env.SMOKE_WS_URL ?? "ws://localhost:8787";
 const slot = `interactable-smoke-${Date.now()}`;
@@ -36,6 +37,8 @@ function connect() {
     const state = {
       playerId: "",
       mapId: "fog-harbor-test",
+      x: 280,
+      y: 430,
       quests: new Map(),
       itemDrops: [],
       monsters: [],
@@ -58,11 +61,19 @@ function connect() {
 
       if (message.type === "map:change") {
         state.mapId = message.mapId;
+        state.x = message.x;
+        state.y = message.y;
       }
 
       if (message.type === "world:snapshot") {
         state.monsters = message.monsters ?? [];
         state.itemDrops = message.itemDrops ?? [];
+        const self = message.players.find((player) => player.id === state.playerId);
+        if (self) {
+          state.mapId = self.mapId;
+          state.x = self.x;
+          state.y = self.y;
+        }
       }
 
       if (message.type === "quest:update") {
@@ -80,20 +91,15 @@ function connect() {
   });
 }
 
-function playerUpdate(state, x, y, mapId = state.mapId, facing = "right") {
-  return {
-    type: "player:update",
-    player: {
-      id: state.playerId,
-      name: "互動測試員",
-      className: "hunter",
-      mapId,
-      x,
-      y,
-      facing,
-      animation: "idle"
-    }
-  };
+function movePlayer(ws, state, x, y, mapId = state.mapId, facing = "right") {
+  return moveSmokePlayer(ws, state, {
+    mapId,
+    x,
+    y,
+    name: "互動測試員",
+    className: "hunter",
+    facing
+  });
 }
 
 async function waitFor(predicate, label, timeoutMs = 8000) {
@@ -110,8 +116,7 @@ async function waitFor(predicate, label, timeoutMs = 8000) {
 }
 
 async function interactNpc(ws, state, mapId, x, y, npcId) {
-  send(ws, playerUpdate(state, x, y, mapId));
-  await wait(120);
+  await movePlayer(ws, state, x, y, mapId);
   send(ws, { type: "npc:interact", npcId });
   await wait(260);
 }
@@ -154,8 +159,7 @@ async function defeatMonster(ws, state, mapId, monster) {
     }
 
     const attackX = currentMonster.x - 92;
-    send(ws, playerUpdate(state, attackX, currentMonster.y, mapId, "right"));
-    await wait(45);
+    await movePlayer(ws, state, attackX, currentMonster.y, mapId, "right");
     send(ws, {
       type: "combat:attack",
       attackId: `${monster.id}-${Date.now()}-${attack}`,
@@ -177,8 +181,7 @@ async function pickupItem(ws, state, mapId, itemId) {
     () => state.itemDrops.find((candidate) => candidate.itemId === itemId && candidate.mapId === mapId),
     `${itemId} drop`
   );
-  send(ws, playerUpdate(state, drop.x, drop.y, mapId));
-  await wait(120);
+  await movePlayer(ws, state, drop.x, drop.y, mapId);
   send(ws, { type: "item:pickup", dropId: drop.id });
   await wait(220);
 }
@@ -221,8 +224,7 @@ for (const slime of monsters.harborSlimes) {
 }
 await finishQuestAtNpc(ws, state, "mist-gel-lantern", "fog-harbor-test", 1510, 466, "lighthouse-apprentice");
 
-send(ws, playerUpdate(state, 2285, 430, "fog-harbor-test"));
-await wait(150);
+await movePlayer(ws, state, 2285, 430, "fog-harbor-test");
 send(ws, { type: "portal:enter", portalId: "to-breakwater" });
 await wait(500);
 
@@ -239,8 +241,7 @@ await finishQuestAtNpc(ws, state, "tide-watcher-core", "mist-breakwater", 190, 4
 await acceptQuest(ws, state, "breakwater-lantern-repair", "mist-breakwater", 1320, 466, "tide-researcher-yu");
 assertQuest(state, "breakwater-lantern-repair", "active", 0);
 
-send(ws, playerUpdate(state, 515, 438, "mist-breakwater"));
-await wait(120);
+await movePlayer(ws, state, 515, 438, "mist-breakwater");
 send(ws, { type: "map:interact", interactableId: "lantern-west" });
 await wait(300);
 let quest = assertQuest(state, "breakwater-lantern-repair", "active", 1);
@@ -252,14 +253,12 @@ send(ws, { type: "map:interact", interactableId: "lantern-west" });
 await wait(300);
 assertQuest(state, "breakwater-lantern-repair", "active", 1);
 
-send(ws, playerUpdate(state, 900, 438, "mist-breakwater"));
-await wait(120);
+await movePlayer(ws, state, 900, 438, "mist-breakwater");
 send(ws, { type: "map:interact", interactableId: "lantern-mid" });
 await wait(300);
 assertQuest(state, "breakwater-lantern-repair", "active", 2);
 
-send(ws, playerUpdate(state, 1270, 438, "mist-breakwater"));
-await wait(120);
+await movePlayer(ws, state, 1270, 438, "mist-breakwater");
 send(ws, { type: "map:interact", interactableId: "lantern-east" });
 await wait(300);
 quest = assertQuest(state, "breakwater-lantern-repair", "ready", 3);
