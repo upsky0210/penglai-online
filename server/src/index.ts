@@ -70,12 +70,17 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID ?? "";
 const allowedGoogleHostedDomain = process.env.GOOGLE_HOSTED_DOMAIN ?? "";
 const authCorsOrigin = process.env.AUTH_CORS_ORIGIN ?? "*";
 const adminToken = process.env.ADMIN_TOKEN ?? "";
+const requireAdminToken = /^(1|true|yes)$/i.test(process.env.PENGLAI_REQUIRE_ADMIN_TOKEN ?? "");
 // Test-only: when enabled, /auth/google also accepts "mock:<email>" credentials so the
 // login/binding/migration flow can be exercised without a real Google OAuth Client ID.
 // Must stay OFF in production.
 const authAllowMock = /^(1|true|yes)$/i.test(process.env.AUTH_ALLOW_MOCK ?? "");
 const backupDirectory = process.env.PENGLAI_BACKUP_DIR ?? join(dirname(getDatabasePath()), "../backups");
 const googleAuth = new GoogleAuthVerifier(googleClientId, allowedGoogleHostedDomain);
+if (requireAdminToken && (adminToken === "smoke-admin" || !/^[A-Za-z0-9_-]{20,}$/.test(adminToken))) {
+  console.error("Refusing classroom startup: set a secure ADMIN_TOKEN before starting the server.");
+  process.exit(1);
+}
 const httpServer = createServer((request, response) => {
   void handleHttpRequest(request, response);
 });

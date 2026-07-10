@@ -5,7 +5,7 @@ setlocal
 title Penglai Online 一鍵啟動
 cd /d "%~dp0"
 
-set "ADMIN_TOKEN=smoke-admin"
+set "ADMIN_TOKEN="
 set "FRONTEND_URL=http://localhost:5174"
 set "BACKEND_URL=http://localhost:8787"
 set "AUTH_CORS_ORIGIN=%FRONTEND_URL%"
@@ -19,7 +19,6 @@ echo 專案資料夾：%CD%
 echo 前端網址：%FRONTEND_URL%
 echo 後端網址：%BACKEND_URL%
 echo 管理面板：%FRONTEND_URL%/?admin=1
-echo Admin Token：%ADMIN_TOKEN%
 echo.
 
 where node >nul 2>nul
@@ -63,8 +62,22 @@ if not exist "node_modules" (
 )
 
 echo.
+echo [安全設定] 請輸入教師管理 Token。
+echo Token 至少 20 字元，僅限英文字母、數字、底線或連字號；不可使用 smoke-admin。
+set /p "ADMIN_TOKEN=ADMIN_TOKEN："
+node scripts\validate-admin-token.mjs
+if errorlevel 1 (
+  echo.
+  echo [錯誤] 未啟動。請設定符合規則的 ADMIN_TOKEN。
+  echo.
+  pause
+  exit /b 1
+)
+set "PENGLAI_REQUIRE_ADMIN_TOKEN=1"
+
+echo.
 echo 正在啟動後端伺服器...
-start "Penglai Online - Server" /D "%CD%" cmd /k "set ADMIN_TOKEN=%ADMIN_TOKEN%&& set AUTH_CORS_ORIGIN=%AUTH_CORS_ORIGIN%&& npm.cmd --workspace server run start"
+start "Penglai Online - Server" /D "%CD%" cmd /k "npm.cmd --workspace server run start"
 
 timeout /t 3 /nobreak >nul
 
@@ -84,7 +97,7 @@ echo ==========================================
 echo.
 echo 遊戲網址：%FRONTEND_URL%
 echo 管理面板：%FRONTEND_URL%/?admin=1
-echo Admin Token：%ADMIN_TOKEN%
+echo 管理 Token 已設定。請在管理面板手動輸入。
 echo.
 echo 若要關閉遊戲，請關閉另外開啟的 Server 與 Client 兩個命令視窗。
 echo.
