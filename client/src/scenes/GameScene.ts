@@ -57,6 +57,10 @@ import {
 } from "../game/questGuidance";
 import { createUiPanel, type UiPanel } from "../game/uiPanel";
 import { ColorHex, ColorText, uiFont } from "../game/uiTheme";
+import { CombatVfx } from "../game/CombatVfx";
+import { HudLayer } from "../game/HudLayer";
+import { MapRenderer } from "../game/MapRenderer";
+import { RemoteEntityLayer } from "../game/RemoteEntityLayer";
 import type { ItemDropView, MonsterView } from "../game/viewTypes";
 import { GameSocket, getGameSocketUrl } from "../net/GameSocket";
 import {
@@ -162,6 +166,7 @@ export class GameScene extends Phaser.Scene {
   private facing: "left" | "right" = "right";
   private playerId = "";
   private ws?: GameSocket;
+  // Transitional fallback state for scene restart compatibility; live snapshots use RemoteEntityLayer.
   private remotePlayers = new Map<string, Phaser.GameObjects.Sprite>();
   private remotePlayerLastAnimation = new Map<string, PlayerAnimation>();
   private remoteAttackSoundReadyAt = 0;
@@ -254,6 +259,10 @@ export class GameScene extends Phaser.Scene {
   private localPlayerName = "霧港旅人";
   private localClassName: CharacterClass = "swordsman";
   private audio = new GameAudioManager();
+  private combatVfx = new CombatVfx(this, this.audio);
+  private mapRenderer = new MapRenderer(this);
+  private remoteEntities?: RemoteEntityLayer;
+  private hud?: HudLayer;
 
   constructor() {
     super("boot");
@@ -790,6 +799,18 @@ export class GameScene extends Phaser.Scene {
 
     this.addHud();
     this.addPlayer();
+    this.remoteEntities = new RemoteEntityLayer(this, {
+      getPlayerId: () => this.playerId,
+      getLocalPlayer: () => this.player,
+      getPlayerTextureKey: (animation) => this.getPlayerTextureKey(animation),
+      applyPlayerAnimation: (sprite, animation) => this.applyPlayerSpriteAnimation(sprite, animation),
+      flashAttackTelegraph: (x, y, direction, className, isSkill) => this.combatVfx.flashAttackTelegraph(x, y, direction, className, isSkill, (targetClass) => this.getPrimarySkillFor(targetClass)),
+      updateLocalPlayer: (player) => this.updateHud(player),
+      onMonsterSnapshotsChanged: () => this.updateBossStatusPanel(),
+      hasUsableTexture: (key) => this.hasUsableTexture(key),
+      pendingPickupIds: this.pendingPickupIds,
+      audio: this.audio
+    });
     this.rebuildMap(this.currentMap);
     this.connect();
     this.maybeShowFirstRunSaveReminder();
@@ -1320,16 +1341,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private captureMapObjects(render: () => void) {
-    const before = new Set(this.children.list);
-    render();
-    for (const object of this.children.list) {
-      if (!before.has(object)) {
-        this.mapObjects.push(object);
-      }
-    }
+    this.mapRenderer.capture(render);
   }
 
   private clearMapObjects() {
+    this.mapRenderer.clear();
+    return;
     for (const collider of this.platformColliders) {
       collider.destroy();
     }
@@ -1344,18 +1361,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private rebuildMap(map: GameMapData, x = map.playerSpawn.x, y = map.playerSpawn.y) {
-    this.clearMapObjects();
     this.currentMap = map;
     this.currentMapId = map.id;
-    this.physics.world.setBounds(0, 0, map.width, map.height);
-    this.cameras.main.setBounds(0, 0, map.width, map.height);
-    this.captureMapObjects(() => {
+    this.mapRenderer.rebuild(map, () => {
       this.addBackground();
       this.addNpcs();
       this.addPlatforms();
-    });
-    this.player?.setPosition(x, y);
-    this.player?.setVelocity(0, 0);
+    }, this.player, x, y);
     this.currentZoneId = "";
     this.bossEntryHintShown = false;
     this.nearbyNpcId = "";
@@ -1631,7 +1643,7 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: "#10271fcc",
       padding: { x: 5, y: 3 }
     });
-    this.interactableStatusTexts.set(interactable.id, status);
+    this.mapRenderer.setInteractableStatusText(interactable.id, status);
   }
 
   private addSignpost(x: number, y: number, text: string) {
@@ -1763,6 +1775,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearChapterStateObjects() {
+    this.mapRenderer.clearChapterObjects();
+    return;
     for (const object of this.chapterStateObjects) {
       this.tweens.killTweensOf(object);
       object.destroy();
@@ -1771,6 +1785,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addChapterStateObject<T extends Phaser.GameObjects.GameObject>(object: T) {
+    return this.mapRenderer.addChapterObject(object);
     this.chapterStateObjects.push(object);
     return object;
   }
@@ -1932,7 +1947,7 @@ export class GameScene extends Phaser.Scene {
       body.setSize(platformData.width, platformData.height);
       body.updateFromGameObject();
       const collider = this.physics.add.collider(this.player, platform);
-      this.platformColliders.push(collider);
+      this.mapRenderer.addPlatformCollider(collider);
     }
   }
 
@@ -2169,6 +2184,14 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(200)
       .setVisible(false);
+
+    this.hud = HudLayer.bind(this, {
+      statusText: this.statusText!, levelText: this.levelText!, hpFill: this.hpFill!, hpText: this.hpText!,
+      mpFill: this.mpFill!, mpText: this.mpText!, expFill: this.expFill!, expText: this.expText!,
+      goldText: this.goldText!, skillText: this.skillText!, bossHpBack: this.bossHpBack!, bossHpFill: this.bossHpFill!,
+      bossStatusText: this.bossStatusText!, dialogueBox: this.dialogueBox!, dialogueText: this.dialogueText!,
+      promptText: this.promptText!, zoneText: this.zoneText!
+    });
   }
 
   private addUiPanel(x: number, y: number, width: number, height: number, title: string): UiPanel {
@@ -2649,9 +2672,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applySnapshot(players: PlayerSnapshot[], monsters: MonsterSnapshot[], itemDrops: ItemDropSnapshot[]) {
-    this.applyPlayerSnapshot(players);
-    this.applyMonsterSnapshot(monsters);
-    this.applyItemDropSnapshot(itemDrops);
+    this.remoteEntities?.applySnapshot(players, monsters, itemDrops);
   }
 
   private applyPlayerSnapshot(players: PlayerSnapshot[]) {
@@ -2846,6 +2867,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private nudgeMonsterView(monsterId: string) {
+    if (this.remoteEntities) {
+      this.remoteEntities.nudgeMonsterView(monsterId);
+      return;
+    }
     const view = this.monsters.get(monsterId);
     if (!view || !this.player) {
       return;
@@ -3242,15 +3267,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private flashHitbox(isSkill: boolean) {
+    this.combatVfx.flashHitbox(this.player, this.facing, this.localClassName, isSkill, (className) => this.getPrimarySkillFor(className));
+    return;
     if (!this.player) {
       return;
     }
 
     const direction = this.facing === "right" ? 1 : -1;
-    this.flashAttackTelegraph(this.player.x, this.player.y, direction, this.localClassName, isSkill);
+    this.flashAttackTelegraph(this.player!.x, this.player!.y, direction, this.localClassName, isSkill);
   }
 
   private flashAttackTelegraph(x: number, y: number, direction: 1 | -1, className: CharacterClass, isSkill: boolean) {
+    this.combatVfx.flashAttackTelegraph(x, y, direction, className, isSkill, (targetClass) => this.getPrimarySkillFor(targetClass));
+    return;
     if (!isSkill) {
       this.flashBasicAttack(x, y, direction);
       return;
@@ -3368,16 +3397,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showDamage(monsterId: string, damage: number, defeated: boolean, isSkill = false, skillId?: SkillId) {
+    this.combatVfx.showDamage(this.remoteEntities?.getMonsterView(monsterId) ?? this.monsters.get(monsterId), damage, defeated, isSkill, skillId);
+    return;
     const view = this.monsters.get(monsterId);
     if (!view) {
       return;
     }
 
     if (isSkill) {
-      this.flashSkillImpact(view.body.x, view.body.y, skillId);
+      this.flashSkillImpact(view!.body.x, view!.body.y, skillId);
     }
 
-    const text = this.add.text(view.body.x - 10, view.body.y - 72, defeated ? "擊破" : `-${damage}`, {
+    const text = this.add.text(view!.body.x - 10, view!.body.y - 72, defeated ? "擊破" : `-${damage}`, {
       fontFamily: uiFont,
       fontSize: defeated ? "20px" : "17px",
       color: defeated ? ColorText.riceWhite : isSkill ? ColorText.mistBlue : ColorText.gold,
@@ -3416,6 +3447,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showMiss(isSkill = false, skillId?: SkillId) {
+    this.combatVfx.showMiss(this.player, this.facing, isSkill, skillId);
+    return;
     this.audio.playMissSound(isSkill, skillId);
     if (!this.player) {
       return;
@@ -3423,8 +3456,8 @@ export class GameScene extends Phaser.Scene {
 
     const direction = this.facing === "right" ? 1 : -1;
     const color = isSkill ? this.getSkillEffectColor(skillId) : "#d8cfae";
-    const x = this.player.x + direction * 58;
-    const y = this.player.y - 52;
+    const x = this.player!.x + direction * 58;
+    const y = this.player!.y - 52;
     const text = this.add.text(x - 24, y, isSkill ? "未命中" : "落空", {
       fontSize: "14px",
       color,
@@ -3497,6 +3530,7 @@ export class GameScene extends Phaser.Scene {
     this.localDefense = player.defense;
     this.localPlayerName = player.name;
     this.localClassName = player.className;
+    this.hud?.updatePlayer(player);
     this.levelText?.setText(`${player.name} | 等級 ${player.level}`);
     this.expText?.setText(`${player.exp}/${player.expToNext}`);
     this.hpText?.setText(`${player.hp}/${player.maxHp}`);
@@ -3552,6 +3586,7 @@ export class GameScene extends Phaser.Scene {
           : `缺 ${Math.ceil(primarySkill.mpCost - this.localMp)} 法力`;
     const color = remainingMs > 0 ? ColorText.sand : this.localMp >= primarySkill.mpCost ? ColorText.mistBlue : ColorText.danger;
 
+    this.hud?.updateSkill(primarySkill, this.localMp, remainingMs);
     this.skillText.setText(`J ${primarySkill.name} | ${primarySkill.mpCost} 法力 | ${status}`);
     this.skillText.setColor(color);
   }
@@ -3680,7 +3715,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    for (const [dropId, view] of this.itemDrops) {
+    for (const [dropId, view] of this.remoteEntities?.getItemDrops() ?? this.itemDrops) {
       if (Math.abs(this.player.x - view.body.x) <= 64 && Math.abs(this.player.y - view.body.y) <= 72) {
         this.nearbyDropId = dropId;
         this.tryAutoPickupDrop(dropId);
@@ -3695,7 +3730,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateInteractableStatusLabels() {
     for (const interactable of this.currentMap.interactables) {
-      const label = this.interactableStatusTexts.get(interactable.id);
+      const label = this.mapRenderer.getInteractableStatusText(interactable.id) ?? this.interactableStatusTexts.get(interactable.id);
       if (!label) {
         continue;
       }
@@ -4194,6 +4229,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateBossStatusPanel() {
+    if (this.hud) {
+      const boss = this.getCurrentBossStatusTarget();
+      if (!boss) {
+        this.hud.updateBoss();
+        return;
+      }
+      const questHint = this.quests.get(boss.questId)?.status === "active" ? "任務目標" : "危險區域";
+      this.hud.updateBoss({
+        hp: boss.monster.hp,
+        maxHp: boss.monster.maxHp,
+        alive: boss.monster.alive,
+        text: `${boss.name} ${boss.monster.hp}/${boss.monster.maxHp} | ${questHint} | K/J 攻擊`,
+        defeatedText: boss.defeatedText
+      });
+      return;
+    }
     if (!this.bossHpBack || !this.bossHpFill || !this.bossStatusText) {
       return;
     }
@@ -4226,7 +4277,7 @@ export class GameScene extends Phaser.Scene {
 
   private getCurrentBossStatusTarget() {
     if (this.currentMapId === "mist-breakwater") {
-      const monster = this.monsterSnapshots.get("tide-watcher-1");
+      const monster = this.remoteEntities?.getMonsterSnapshot("tide-watcher-1") ?? this.monsterSnapshots.get("tide-watcher-1");
       const quest = this.quests.get("tide-watcher-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1320));
       return monster && shouldShow
@@ -4240,7 +4291,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "old-harbor-warehouse") {
-      const monster = this.monsterSnapshots.get("warehouse-sentry-1");
+      const monster = this.remoteEntities?.getMonsterSnapshot("warehouse-sentry-1") ?? this.monsterSnapshots.get("warehouse-sentry-1");
       const quest = this.quests.get("warehouse-sentry-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1500));
       return monster && shouldShow
@@ -4254,7 +4305,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "coral-tide-cavern") {
-      const monster = this.monsterSnapshots.get("coral-warden-1");
+      const monster = this.remoteEntities?.getMonsterSnapshot("coral-warden-1") ?? this.monsterSnapshots.get("coral-warden-1");
       const quest = this.quests.get("coral-warden-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 1840));
       return monster && shouldShow
@@ -4268,7 +4319,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "sunken-archive") {
-      const monster = this.monsterSnapshots.get("archive-guardian-1");
+      const monster = this.remoteEntities?.getMonsterSnapshot("archive-guardian-1") ?? this.monsterSnapshots.get("archive-guardian-1");
       const quest = this.quests.get("archive-guardian-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2040));
       return monster && shouldShow
@@ -4282,7 +4333,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.currentMapId === "starlit-observatory") {
-      const monster = this.monsterSnapshots.get("astral-keeper-1");
+      const monster = this.remoteEntities?.getMonsterSnapshot("astral-keeper-1") ?? this.monsterSnapshots.get("astral-keeper-1");
       const quest = this.quests.get("astral-keeper-core");
       const shouldShow = Boolean((quest && quest.status !== "completed" && quest.status !== "available") || (this.player && this.player.x >= 2200));
       return monster && shouldShow
@@ -4530,6 +4581,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showDialogue(text: string) {
+    if (this.hud) {
+      this.hud.showDialogue(text);
+      return;
+    }
     if (!this.dialogueText) {
       return;
     }
