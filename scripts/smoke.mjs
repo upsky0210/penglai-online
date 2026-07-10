@@ -33,6 +33,12 @@ async function assertWebSocketWelcome() {
     ws.on("message", (data) => {
       const message = JSON.parse(data.toString());
       if (message.type === "session:welcome" && message.saveSlot === "smoke-script-slot") {
+        if (message.protocolVersion !== 1) {
+          clearTimeout(timer);
+          ws.close();
+          reject(new Error(`WebSocket welcome protocol version mismatch: ${message.protocolVersion}`));
+          return;
+        }
         clearTimeout(timer);
         ws.close();
         resolve();

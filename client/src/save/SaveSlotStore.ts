@@ -1,3 +1,4 @@
+import { normalizeSaveSlotCode } from "@penglai/shared";
 import { clientStorageKeys } from "../game/clientConfig";
 
 export function getOrCreateSaveSlot() {
@@ -54,10 +55,7 @@ export function persistPreviousSaveSlot(previousSaveSlot: string) {
   }
 }
 
-export function normalizeSaveSlotCode(raw: string) {
-  const normalized = raw.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
-  return normalized.length >= 8 ? normalized : "";
-}
+export { normalizeSaveSlotCode } from "@penglai/shared";
 
 export function formatSaveSlot(saveSlot: string) {
   if (saveSlot.length <= 12) {

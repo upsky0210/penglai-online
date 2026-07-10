@@ -1,12 +1,15 @@
 ﻿import Phaser from "phaser";
 import {
   CLASS_SKILL_IDS,
+  CHARACTER_CLASS_CONFIGS,
   DEFAULT_GAME_MAP,
+  DEFAULT_CHARACTER_CLASS,
   GAME_MAPS,
   ITEM_DEFINITIONS,
   MONSTER_KIND_NAMES,
   SKILL_DEFINITIONS,
   getGameMap,
+  PROTOCOL_VERSION,
   type CharacterClass,
   type EquipmentSnapshot,
   type GameMapData,
@@ -23,7 +26,7 @@ import {
   type SkillId
 } from "@penglai/shared";
 import { gameHeight, gameWidth, jumpSpeed, moveSpeed, normalAttackCooldownMs } from "../game/constants";
-import { characterNamePresets, clientStorageKeys, fallbackPlayerMp, googleClientId } from "../game/clientConfig";
+import { characterNamePresets, clientStorageKeys, googleClientId } from "../game/clientConfig";
 import { GameAudioManager } from "../game/audioManager";
 import {
   optionalImageAssets,
@@ -129,7 +132,7 @@ interface AnnouncementNotice {
   expiresAt?: number;
 }
 
-const maxPlayerMp = fallbackPlayerMp;
+const defaultPlayerMp = CHARACTER_CLASS_CONFIGS[DEFAULT_CHARACTER_CLASS].maxMp;
 const emptyEquipment: EquipmentSnapshot = {
   weapon: null,
   armor: null
@@ -190,9 +193,9 @@ export class GameScene extends Phaser.Scene {
   private feedbackForm?: FeedbackFormController;
   private lastPlayerUpdateAt = 0;
   private localHp = 100;
-  private localMp = maxPlayerMp;
+  private localMp = defaultPlayerMp;
   private localMaxHp = 100;
-  private localMaxMp = maxPlayerMp;
+  private localMaxMp = defaultPlayerMp;
   private localAttack = 12;
   private localDefense = 0;
   private skillReadyAt = 0;
@@ -687,6 +690,10 @@ export class GameScene extends Phaser.Scene {
 
   private getSelectedClassOption() {
     return getCharacterClassOption(this.selectedClass);
+  }
+
+  private getSelectedClassConfig() {
+    return CHARACTER_CLASS_CONFIGS[this.selectedClass];
   }
 
   private getClassLabel(className: CharacterClass) {
@@ -1314,7 +1321,7 @@ export class GameScene extends Phaser.Scene {
   private addHud() {
     this.currentSaveSlot = this.getSaveSlot();
     this.previousSaveSlot = this.getPreviousSaveSlot();
-    this.hud = new HudLayer(this, this.characterName, this.getPrimarySkill(), maxPlayerMp);
+    this.hud = new HudLayer(this, this.characterName, this.getPrimarySkill(), this.getSelectedClassConfig().maxMp);
 
     this.inventoryPanel = this.addUiPanel(18, 194, 250, 154, "背包");
     this.questPanel = this.addUiPanel(gameWidth - 292, 18, 274, 136, "任務");
@@ -1408,6 +1415,12 @@ export class GameScene extends Phaser.Scene {
       },
       onMessage: (message) => {
       if (message.type === "session:welcome") {
+        if (message.protocolVersion !== PROTOCOL_VERSION) {
+          this.ws?.close();
+          this.hud?.setStatus("版本不相容，請重新整理遊戲。");
+          this.showToast("遊戲版本已更新，請重新整理後再進入。");
+          return;
+        }
         this.playerId = message.playerId;
         if (this.authSessionId && !message.authenticated) {
           this.clearAuthSession(false);
@@ -1765,9 +1778,9 @@ export class GameScene extends Phaser.Scene {
     this.bossEntryHintShown = false;
     this.lastPlayerUpdateAt = 0;
     this.localHp = 100;
-    this.localMp = maxPlayerMp;
+    this.localMp = this.getSelectedClassConfig().maxMp;
     this.localMaxHp = 100;
-    this.localMaxMp = maxPlayerMp;
+    this.localMaxMp = this.getSelectedClassConfig().maxMp;
     this.localAttack = 12;
     this.localDefense = 0;
     this.skillReadyAt = 0;

@@ -5,7 +5,9 @@ import { basename, dirname, join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   CLASS_SKILL_IDS,
+  CHARACTER_CLASS_CONFIGS,
   DEFAULT_GAME_MAP,
+  DEFAULT_CHARACTER_CLASS,
   FOG_HARBOR_TEST_MAP,
   GAME_MAPS,
   ITEM_DEFINITIONS,
@@ -15,6 +17,10 @@ import {
   SHOP_DEFINITIONS,
   SKILL_DEFINITIONS,
   getGameMap,
+  isCharacterClass,
+  normalizeCharacterName,
+  normalizeSaveSlotCode,
+  PROTOCOL_VERSION,
   type CharacterClass,
   type ClientMessage,
   type EquipmentSnapshot,
@@ -170,60 +176,6 @@ const mapPotionDropChance: Record<MapId, number> = {
   "sunken-archive": 0.35,
   "starlit-observatory": 0.35
 };
-const characterClasses = new Set<CharacterClass>(["swordsman", "talisman", "hunter"]);
-const classConfigs: Record<
-  CharacterClass,
-  {
-    maxHp: number;
-    maxMp: number;
-    mpRegenPerSecond: number;
-    attackBonus: number;
-    defenseBonus: number;
-    normalAttackRange: number;
-    normalAttackVerticalRange: number;
-    skillDamageBonus: number;
-    skillRangeBonus: number;
-    skillVerticalRangeBonus: number;
-  }
-> = {
-  swordsman: {
-    maxHp: 115,
-    maxMp: 36,
-    mpRegenPerSecond: 4.5,
-    attackBonus: 3,
-    defenseBonus: 2,
-    normalAttackRange: 70,
-    normalAttackVerticalRange: 48,
-    skillDamageBonus: 0,
-    skillRangeBonus: 0,
-    skillVerticalRangeBonus: 0
-  },
-  talisman: {
-    maxHp: 90,
-    maxMp: 60,
-    mpRegenPerSecond: 6,
-    attackBonus: -1,
-    defenseBonus: 0,
-    normalAttackRange: 64,
-    normalAttackVerticalRange: 46,
-    skillDamageBonus: 10,
-    skillRangeBonus: 14,
-    skillVerticalRangeBonus: 8
-  },
-  hunter: {
-    maxHp: 100,
-    maxMp: 42,
-    mpRegenPerSecond: 5,
-    attackBonus: 1,
-    defenseBonus: 0,
-    normalAttackRange: 100,
-    normalAttackVerticalRange: 54,
-    skillDamageBonus: 2,
-    skillRangeBonus: 26,
-    skillVerticalRangeBonus: 4
-  }
-};
-
 for (const map of Object.values(GAME_MAPS)) {
   for (const spawn of map.monsterSpawns) {
     monsters.set(spawn.id, {
@@ -247,28 +199,20 @@ function getExpToNext(level: number) {
   return 60 + (level - 1) * 45;
 }
 
-function normalizePlayerName(name: string) {
-  return Array.from(name.trim().replace(/\s+/g, "")).slice(0, 12).join("") || "旅人";
-}
-
-function isCharacterClass(value: unknown): value is CharacterClass {
-  return typeof value === "string" && characterClasses.has(value as CharacterClass);
-}
-
 function getClassConfig(className: CharacterClass) {
-  return classConfigs[className];
+  return CHARACTER_CLASS_CONFIGS[className];
 }
 
 function getPlayerClassConfig(playerId: string) {
-  return getClassConfig(players.get(playerId)?.className ?? "swordsman");
+  return getClassConfig(players.get(playerId)?.className ?? DEFAULT_CHARACTER_CLASS);
 }
 
 function getMaxHp(playerId: string, className?: CharacterClass) {
-  return getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").maxHp;
+  return getClassConfig(className ?? players.get(playerId)?.className ?? DEFAULT_CHARACTER_CLASS).maxHp;
 }
 
 function getMaxMp(playerId: string, className?: CharacterClass) {
-  return getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").maxMp;
+  return getClassConfig(className ?? players.get(playerId)?.className ?? DEFAULT_CHARACTER_CLASS).maxMp;
 }
 
 function clampStat(value: number | undefined, max: number) {
@@ -384,8 +328,7 @@ function createEquipmentFromSave(savedEquipment: EquipmentSnapshot) {
 }
 
 function normalizeSaveSlot(rawSlot: string | null | undefined, fallback: string) {
-  const normalized = rawSlot?.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
-  return normalized && normalized.length >= 8 ? normalized : `guest-${fallback}`;
+  return normalizeSaveSlotCode(rawSlot ?? "") || `guest-${fallback}`;
 }
 
 function getSaveSlot(requestUrl: string | undefined, fallback: string) {
@@ -677,7 +620,7 @@ async function handleGoogleAuth(request: IncomingMessage, response: ServerRespon
     const fallbackSlot = `account-${account.accountId.slice(5, 13)}`;
     const requestedSlot = typeof body.saveSlot === "string" ? body.saveSlot : getFirstSaveSlotForAccount(account.accountId);
     const saveSlot = normalizeSaveSlot(requestedSlot, fallbackSlot);
-    const characterName = typeof body.characterName === "string" ? normalizePlayerName(body.characterName) : undefined;
+  const characterName = typeof body.characterName === "string" ? normalizeCharacterName(body.characterName) : undefined;
     bindAccountSaveSlot(account.accountId, saveSlot, characterName);
     const session = createAuthSession(account.accountId);
     const saveSlots = listSaveSlotsForAccount(account.accountId);
@@ -1491,14 +1434,14 @@ function getLevelAttackBonus(playerId: string, level?: number) {
 function getAttack(playerId: string, className?: CharacterClass) {
   return (
     baseAttack +
-    getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").attackBonus +
+    getClassConfig(className ?? players.get(playerId)?.className ?? DEFAULT_CHARACTER_CLASS).attackBonus +
     getAttackBonus(playerId) +
     getLevelAttackBonus(playerId)
   );
 }
 
 function getDefense(playerId: string, className?: CharacterClass) {
-  return baseDefense + getClassConfig(className ?? players.get(playerId)?.className ?? "swordsman").defenseBonus + getDefenseBonus(playerId);
+  return baseDefense + getClassConfig(className ?? players.get(playerId)?.className ?? DEFAULT_CHARACTER_CLASS).defenseBonus + getDefenseBonus(playerId);
 }
 
 function syncPlayerStats(playerId: string) {
@@ -2898,7 +2841,7 @@ function connectPlayer(ws: WebSocket, request: IncomingMessage): PlayerConnectio
   // from that in-memory snapshot instead of loading an older row and overwriting it.
   const savedGame = saveCoordinator.getPendingSavedGame(saveSlot) ?? loadGame(saveSlot);
   const savedCharacter = savedGame.character;
-  const savedClassName = isCharacterClass(savedCharacter?.className) ? savedCharacter.className : "swordsman";
+  const savedClassName = isCharacterClass(savedCharacter?.className) ? savedCharacter.className : DEFAULT_CHARACTER_CLASS;
   const maxHp = getMaxHp(playerId, savedClassName);
   const maxMp = getMaxMp(playerId, savedClassName);
   sockets.set(playerId, ws);
@@ -2953,7 +2896,14 @@ function connectPlayer(ws: WebSocket, request: IncomingMessage): PlayerConnectio
   inventories.set(playerId, createInventoryFromSave(savedGame.inventory));
   playerSkillReadyAt.set(playerId, new Map());
 
-  send(ws, { type: "session:welcome", playerId, saveSlot, authenticated: Boolean(authSession), mapId: spawnMap.id });
+  send(ws, {
+    type: "session:welcome",
+    protocolVersion: PROTOCOL_VERSION,
+    playerId,
+    saveSlot,
+    authenticated: Boolean(authSession),
+    mapId: spawnMap.id
+  });
   if (restoredMap) {
     // Align the client with the restored location (it boots on the default map at
     // its spawn) and grant the same brief grace window as portal travel so a
@@ -3008,7 +2958,7 @@ function handleClientMessage(connection: PlayerConnection, ws: WebSocket, messag
         return;
       }
 
-      const requestedName = normalizePlayerName(message.player.name);
+      const requestedName = normalizeCharacterName(message.player.name);
       const requestedClassName = message.player.className;
       const identityLocked = playerIdentityLocked.has(playerId);
       if (identityLocked && (requestedName !== current.name || requestedClassName !== current.className)) {

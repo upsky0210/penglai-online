@@ -1,5 +1,82 @@
 export type CharacterClass = "swordsman" | "talisman" | "hunter";
 
+export const CHARACTER_CLASSES = ["swordsman", "talisman", "hunter"] as const satisfies readonly CharacterClass[];
+export const DEFAULT_CHARACTER_CLASS: CharacterClass = "swordsman";
+
+export interface CharacterClassConfig {
+  maxHp: number;
+  maxMp: number;
+  mpRegenPerSecond: number;
+  attackBonus: number;
+  defenseBonus: number;
+  normalAttackRange: number;
+  normalAttackVerticalRange: number;
+  skillDamageBonus: number;
+  skillRangeBonus: number;
+  skillVerticalRangeBonus: number;
+}
+
+export const CHARACTER_CLASS_CONFIGS: Record<CharacterClass, CharacterClassConfig> = {
+  swordsman: {
+    maxHp: 115,
+    maxMp: 36,
+    mpRegenPerSecond: 4.5,
+    attackBonus: 3,
+    defenseBonus: 2,
+    normalAttackRange: 70,
+    normalAttackVerticalRange: 48,
+    skillDamageBonus: 0,
+    skillRangeBonus: 0,
+    skillVerticalRangeBonus: 0
+  },
+  talisman: {
+    maxHp: 90,
+    maxMp: 60,
+    mpRegenPerSecond: 6,
+    attackBonus: -1,
+    defenseBonus: 0,
+    normalAttackRange: 64,
+    normalAttackVerticalRange: 46,
+    skillDamageBonus: 10,
+    skillRangeBonus: 14,
+    skillVerticalRangeBonus: 8
+  },
+  hunter: {
+    maxHp: 100,
+    maxMp: 42,
+    mpRegenPerSecond: 5,
+    attackBonus: 1,
+    defenseBonus: 0,
+    normalAttackRange: 100,
+    normalAttackVerticalRange: 54,
+    skillDamageBonus: 2,
+    skillRangeBonus: 26,
+    skillVerticalRangeBonus: 4
+  }
+};
+
+export const CHARACTER_CLASS_LABELS: Record<CharacterClass, string> = {
+  swordsman: "劍士",
+  talisman: "符咒師",
+  hunter: "獵人"
+};
+
+export const PROTOCOL_VERSION = 1;
+
+export function isCharacterClass(value: unknown): value is CharacterClass {
+  return typeof value === "string" && (CHARACTER_CLASSES as readonly string[]).includes(value);
+}
+
+export function normalizeCharacterName(name: string) {
+  const normalized = Array.from(name.trim().replace(/\s+/g, "")).slice(0, 12).join("");
+  return normalized || "旅人";
+}
+
+export function normalizeSaveSlotCode(raw: string) {
+  const normalized = raw.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  return normalized.length >= 8 ? normalized : "";
+}
+
 export type Facing = "left" | "right";
 
 export type PlayerAnimation = "idle" | "run" | "jump" | "attack" | "skill";
@@ -2275,6 +2352,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
 export type ServerMessage =
   | {
       type: "session:welcome";
+      protocolVersion: number;
       playerId: string;
       saveSlot?: string;
       authenticated?: boolean;

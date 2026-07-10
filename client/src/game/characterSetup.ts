@@ -1,5 +1,17 @@
-import type { CharacterClass } from "@penglai/shared";
+import {
+  CHARACTER_CLASSES,
+  CHARACTER_CLASS_CONFIGS,
+  CHARACTER_CLASS_LABELS,
+  CLASS_SKILL_IDS,
+  DEFAULT_CHARACTER_CLASS,
+  SKILL_DEFINITIONS,
+  isCharacterClass,
+  normalizeCharacterName,
+  type CharacterClass
+} from "@penglai/shared";
 import { characterNamePresets, clientStorageKeys } from "./clientConfig";
+
+export { isCharacterClass, normalizeCharacterName } from "@penglai/shared";
 
 export interface CharacterClassOption {
   className: CharacterClass;
@@ -12,38 +24,21 @@ export interface CharacterDraft {
   className: CharacterClass;
 }
 
-export const characterClassOptions: CharacterClassOption[] = [
-  {
-    className: "swordsman",
-    label: "劍士",
-    description: "生命 115 / 法力 36，技能：斬擊。"
-  },
-  {
-    className: "talisman",
-    label: "符咒師",
-    description: "生命 90 / 法力 60，技能：靈符彈。"
-  },
-  {
-    className: "hunter",
-    label: "獵人",
-    description: "生命 100 / 法力 42，技能：遠射。"
-  }
-];
+export const characterClassOptions: CharacterClassOption[] = CHARACTER_CLASSES.map((className) => {
+  const config = CHARACTER_CLASS_CONFIGS[className];
+  const skill = SKILL_DEFINITIONS[CLASS_SKILL_IDS[className]];
+  return {
+    className,
+    label: CHARACTER_CLASS_LABELS[className],
+    description: `生命 ${config.maxHp} / 法力 ${config.maxMp}，技能：${skill.name}。`
+  };
+});
 
 export function getDefaultCharacterDraft(): CharacterDraft {
   return {
     name: characterNamePresets[0],
-    className: "swordsman"
+    className: DEFAULT_CHARACTER_CLASS
   };
-}
-
-export function normalizeCharacterName(name: string) {
-  const normalized = Array.from(name.trim().replace(/\s+/g, "")).slice(0, 12).join("");
-  return normalized || "旅人";
-}
-
-export function isCharacterClass(value: unknown): value is CharacterClass {
-  return characterClassOptions.some((option) => option.className === value);
 }
 
 export function getCharacterClassOption(className: CharacterClass) {
@@ -58,7 +53,7 @@ export function readCharacterDraft(saveSlot: string): CharacterDraft {
   const draft = readCharacterDrafts()[saveSlot];
   return {
     name: normalizeCharacterName(draft?.name ?? characterNamePresets[0]),
-    className: isCharacterClass(draft?.className) ? draft.className : "swordsman"
+    className: isCharacterClass(draft?.className) ? draft.className : DEFAULT_CHARACTER_CLASS
   };
 }
 
