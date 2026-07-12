@@ -99,7 +99,8 @@ for (const expectedMap of ["old-harbor-warehouse", "coral-tide-cavern", "sunken-
 }
 
 const lockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("回收書庫封印"));
-if (!lockNotice) {
+const historicalLockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("艋舺木料印記"));
+if (!lockNotice && !historicalLockNotice) {
   throw new Error(`observatory smoke did not receive chapter lock notice: ${state.notices.join(" | ")}`);
 }
 

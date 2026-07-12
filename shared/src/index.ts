@@ -573,6 +573,52 @@ export interface QuestSnapshot extends QuestDefinition {
   interactedTargetIds?: string[];
 }
 
+export interface HistoricalChapterGuide {
+  era: string;
+  focus: string;
+  fact: string;
+  fictionNotice: string;
+}
+
+export const historicalChapterGuides: Record<MapId, HistoricalChapterGuide> = {
+  "fog-harbor-test": {
+    era: "1860–1870 年代",
+    focus: "安平港與府城商業網，如何在開港後連接世界。",
+    fact: "史實啟發：開港通商後，安平港與府城成為南臺灣的重要門戶。",
+    fictionNotice: "潮霧、怪物與潮眼守衛皆為遊戲異聞。"
+  },
+  "mist-breakwater": {
+    era: "1872–1884",
+    focus: "滬尾河港裡的醫療、新學與跨文化交流。",
+    fact: "史實啟發：淡水是北臺灣的河港與新式教育、醫療交流重地。",
+    fictionNotice: "河霧與航標異變皆為遊戲異聞。"
+  },
+  "old-harbor-warehouse": {
+    era: "1880–1905",
+    focus: "鹿港郊商、貨棧與舊港商業網的運作。",
+    fact: "史實啟發：鹿港曾以港市、郊商與貨物流通聞名。",
+    fictionNotice: "貨棧巡弋者與霧化木偶皆為遊戲異聞。"
+  },
+  "coral-tide-cavern": {
+    era: "1895–1935",
+    focus: "大稻埕茶行如何整理、裝箱並把茶葉送往海外。",
+    fact: "史實啟發：大稻埕是北臺灣茶葉貿易與河港運輸的重要節點。",
+    fictionNotice: "茶霧礁光與茶埠守望者皆為遊戲異聞。"
+  },
+  "sunken-archive": {
+    era: "1910–1945",
+    focus: "艋舺河港、木料交易與木作技藝留下的城市記憶。",
+    fact: "史實啟發：艋舺一帶連結河港市街、木料與傳統工藝。",
+    fictionNotice: "木紋異潮與木作庫守衛皆為遊戲異聞。"
+  },
+  "starlit-observatory": {
+    era: "1920–1955",
+    focus: "大嵙崁山區的茶葉、樟腦與河運產業線。",
+    fact: "史實啟發：三峽、大溪周邊曾有茶、樟腦與山產運輸網絡。",
+    fictionNotice: "星圖、蒸餾儀異變與守望者皆為遊戲異聞。"
+  }
+};
+
 export const FIELD_RAT_QUEST: QuestDefinition = {
   id: "field-rat-cleanup",
   title: "清理田鼠",
@@ -1013,6 +1059,35 @@ export const ASTRAL_SEAL_QUEST: QuestDefinition = {
   chapterId: "observatory",
   prerequisiteQuestIds: ["astral-keeper-core"]
 };
+
+// Keep quest IDs and objectives stable for existing saves; only the player-facing chapter language changes.
+Object.assign(FIELD_RAT_QUEST, { title: "整頓安平糧倉鼠患" });
+Object.assign(RAT_TAIL_QUEST, { title: "府城藥舖的鼠患藥引" });
+Object.assign(MIST_GEL_QUEST, { title: "港埠航標燈的霧凝膠" });
+Object.assign(BREAKWATER_SCOUT_QUEST, { title: "巡查滬尾河岸霧線" });
+Object.assign(TIDE_WATCHER_QUEST, { title: "擊退河口潮眼守衛" });
+Object.assign(BREAKWATER_LANTERN_QUEST, { title: "修復滬尾河岸航標燈" });
+Object.assign(WATCHER_SHELL_QUEST, { title: "回收河口潮眼甲片" });
+Object.assign(TIDE_GAUGE_QUEST, { title: "抄錄淡水河潮尺" });
+Object.assign(WAREHOUSE_RAT_QUEST, { title: "清理鹿港商棧鼠患" });
+Object.assign(DAMP_WOOD_QUEST, { title: "驗看鹿港貨棧受潮木料" });
+Object.assign(MIST_PUPPET_QUEST, { title: "驅離商棧霧化木偶" });
+Object.assign(WAREHOUSE_SENTRY_QUEST, { title: "擊退商棧巡弋者" });
+Object.assign(CAVERN_CRAB_QUEST, { title: "整頓茶行碼頭蟹群" });
+Object.assign(REEF_SPARK_QUEST, { title: "收集茶霧礁光碎晶" });
+Object.assign(REEF_SEAL_QUEST, { title: "校對三冊茶箱帳冊" });
+Object.assign(CORAL_WARDEN_QUEST, { title: "擊退茶埠守望者" });
+Object.assign(CORAL_KEY_QUEST, { title: "回收稻江茶埠潮鑰" });
+Object.assign(ARCHIVE_DRIFTER_QUEST, { title: "清理艋舺木料漂冊" });
+Object.assign(INK_CORE_QUEST, { title: "收集木紋異潮核心" });
+Object.assign(ARCHIVE_TABLET_QUEST, { title: "比對三張木料貨單" });
+Object.assign(ARCHIVE_GUARDIAN_QUEST, { title: "擊退木作庫守衛" });
+Object.assign(ARCHIVE_SEAL_QUEST, { title: "回收艋舺木料印記" });
+Object.assign(STAR_MOTH_QUEST, { title: "驅散山產線星砂蛾群" });
+Object.assign(LENS_CORE_QUEST, { title: "收集蒸餾記錄核心" });
+Object.assign(OBSERVATORY_LENS_QUEST, { title: "校準三座樟腦蒸餾儀" });
+Object.assign(ASTRAL_KEEPER_QUEST, { title: "擊退山產線守望者" });
+Object.assign(ASTRAL_SEAL_QUEST, { title: "回收茶樟星圖印記" });
 
 export const QUEST_DEFINITIONS: QuestDefinition[] = [
   FIELD_RAT_QUEST,
@@ -2193,6 +2268,94 @@ export const STARLIT_OBSERVATORY_MAP: GameMapData = {
     }
   ]
 };
+
+function relabelMapEntries(
+  map: GameMapData,
+  labels: { safeZones?: Record<string, string>; npcs?: Record<string, string>; portals?: Record<string, string>; interactables?: Record<string, { name: string; prompt: string }>; monsters?: Partial<Record<MonsterKind, string>> }
+) {
+  for (const zone of map.safeZones) zone.name = labels.safeZones?.[zone.id] ?? zone.name;
+  for (const npc of map.npcs) npc.name = labels.npcs?.[npc.id] ?? npc.name;
+  for (const portal of map.portals) portal.name = labels.portals?.[portal.id] ?? portal.name;
+  for (const interactable of map.interactables) {
+    const label = labels.interactables?.[interactable.id];
+    if (label) Object.assign(interactable, label);
+  }
+  for (const monster of map.monsterSpawns) monster.name = labels.monsters?.[monster.kind] ?? monster.name;
+}
+
+FOG_HARBOR_TEST_MAP.name = "安平開港埠";
+relabelMapEntries(FOG_HARBOR_TEST_MAP, {
+  safeZones: { "fog-harbor-gate": "安平港埠入口", "lighthouse-camp": "府城貨棧外" },
+  npcs: {
+    "fog-harbor-guard": "安平港吏阿成",
+    "herbalist-lin": "府城藥舖林娘",
+    "merchant-chen": "郊商陳掌櫃",
+    "lighthouse-apprentice": "洋行見習生阿海"
+  },
+  portals: { "to-breakwater": "前往滬尾新學", "to-old-warehouse": "前往鹿港商棧" },
+  monsters: { "field-rat": "糧倉鼠", "mist-slime": "港霧凝膠" }
+});
+
+MIST_BREAKWATER_MAP.name = "滬尾新學";
+relabelMapEntries(MIST_BREAKWATER_MAP, {
+  safeZones: { "breakwater-entry": "滬尾河岸入口" },
+  npcs: { "breakwater-scout": "滬尾巡堤員阿岳", "tide-researcher-yu": "新學測繪生阿汐" },
+  portals: { "to-fog-harbor": "返回安平開港埠" },
+  interactables: {
+    "lantern-west": { name: "西側航標燈", prompt: "E 修復航標燈" },
+    "lantern-mid": { name: "中央航標燈", prompt: "E 修復航標燈" },
+    "lantern-east": { name: "東側航標燈", prompt: "E 修復航標燈" },
+    "tide-gauge-main": { name: "淡水河潮尺", prompt: "E 抄錄淡水河潮尺" }
+  },
+  monsters: { "mist-slime": "河霧凝膠", "tide-watcher": "河口潮眼守衛" }
+});
+
+OLD_HARBOR_WAREHOUSE_MAP.name = "鹿港商棧";
+relabelMapEntries(OLD_HARBOR_WAREHOUSE_MAP, {
+  safeZones: { "warehouse-entry": "鹿港商棧入口" },
+  npcs: { "warehouse-keeper": "鹿港商棧掌櫃阿桂" },
+  portals: { "to-fog-harbor": "返回安平開港埠", "to-coral-cavern": "前往稻江茶市" },
+  monsters: { "warehouse-rat": "貨棧鼠", "mist-puppet": "霧化木偶", "warehouse-sentry": "商棧巡弋者" }
+});
+
+CORAL_TIDE_CAVERN_MAP.name = "稻江茶市";
+relabelMapEntries(CORAL_TIDE_CAVERN_MAP, {
+  safeZones: { "cavern-entry": "大稻埕茶埠入口" },
+  npcs: { "cavern-scholar": "茶行學徒阿璇" },
+  portals: { "to-old-warehouse": "返回鹿港商棧", "to-sunken-archive": "前往艋舺木料街" },
+  interactables: {
+    "reef-seal-west": { name: "西側茶箱帳冊", prompt: "E 核對茶箱帳冊" },
+    "reef-seal-mid": { name: "中央茶箱帳冊", prompt: "E 核對茶箱帳冊" },
+    "reef-seal-east": { name: "東側茶箱帳冊", prompt: "E 核對茶箱帳冊" }
+  },
+  monsters: { "cave-crab": "茶埠蟹", "reef-wisp": "茶霧礁光", "coral-warden": "茶埠守望者" }
+});
+
+SUNKEN_ARCHIVE_MAP.name = "艋舺木料街";
+relabelMapEntries(SUNKEN_ARCHIVE_MAP, {
+  safeZones: { "archive-entry": "艋舺木料街入口" },
+  npcs: { "archive-curator": "艋舺木作師阿澈" },
+  portals: { "to-coral-cavern": "返回稻江茶市", "to-starlit-observatory": "前往大嵙崁山產線" },
+  interactables: {
+    "archive-tablet-west": { name: "西側木料貨單", prompt: "E 比對木料貨單" },
+    "archive-tablet-mid": { name: "中央木料貨單", prompt: "E 比對木料貨單" },
+    "archive-tablet-east": { name: "東側木料貨單", prompt: "E 比對木料貨單" }
+  },
+  monsters: { "archive-drifter": "木料漂冊", "ink-sprite": "木紋異靈", "archive-guardian": "木作庫守衛" }
+});
+
+STARLIT_OBSERVATORY_MAP.name = "大嵙崁山產線";
+relabelMapEntries(STARLIT_OBSERVATORY_MAP, {
+  safeZones: { "observatory-entry": "大嵙崁產線入口" },
+  npcs: { "observatory-keeper": "山產線記錄員阿曜" },
+  portals: { "to-sunken-archive": "返回艋舺木料街" },
+  interactables: {
+    "observatory-lens-west": { name: "西側蒸餾記錄儀", prompt: "E 校準蒸餾記錄儀" },
+    "observatory-lens-mid": { name: "中央蒸餾記錄儀", prompt: "E 校準蒸餾記錄儀" },
+    "observatory-lens-east": { name: "東側蒸餾記錄儀", prompt: "E 校準蒸餾記錄儀" }
+  },
+  monsters: { "star-moth": "星砂蛾", "lens-sentinel": "蒸餾儀巡弋者", "astral-keeper": "山產線守望者" }
+});
 
 export const GAME_MAPS: Record<MapId, GameMapData> = {
   "fog-harbor-test": FOG_HARBOR_TEST_MAP,

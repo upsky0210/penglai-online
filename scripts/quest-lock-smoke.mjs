@@ -76,7 +76,8 @@ await wait(500);
 ws.close();
 
 const lockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("調查潮位尺"));
-if (!lockNotice) {
+const historicalLockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("抄錄淡水河潮尺"));
+if (!lockNotice && !historicalLockNotice) {
   throw new Error(`quest lock smoke did not receive lock notice: ${state.notices.join(" | ")}`);
 }
 

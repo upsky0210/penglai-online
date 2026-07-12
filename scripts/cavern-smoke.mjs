@@ -93,7 +93,8 @@ if (!state.mapChanges.includes("coral-tide-cavern")) {
 }
 
 const lockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("擊退倉庫巡弋者"));
-if (!lockNotice) {
+const historicalLockNotice = state.notices.find((notice) => notice.includes("尚未解鎖") && notice.includes("商棧巡弋者"));
+if (!lockNotice && !historicalLockNotice) {
   throw new Error(`cavern smoke did not receive chapter lock notice: ${state.notices.join(" | ")}`);
 }
 
