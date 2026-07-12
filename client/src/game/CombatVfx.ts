@@ -3,7 +3,7 @@ import type { CharacterClass, SkillDefinition, SkillId } from "@penglai/shared";
 import { ColorText, uiFont } from "./uiTheme";
 import type { MonsterView } from "./viewTypes";
 import { GameAudioManager } from "./audioManager";
-import { basicInkSlashAnimationKey, basicInkSlashTextureKey } from "./assetManifest";
+import { basicInkSlashAnimationKey, basicInkSlashTextureKey, skillEffectAssets } from "./assetManifest";
 
 export class CombatVfx {
   constructor(private readonly scene: Phaser.Scene, private readonly audio: GameAudioManager) {}
@@ -78,6 +78,7 @@ export class CombatVfx {
 
   private flashSwordCleave(originX: number, originY: number, direction: 1 | -1) {
     const x = originX + direction * 52;
+    if (this.playEffect(x, originY - 4, skillEffectAssets["sword-cleave"], direction)) return;
     const slash = this.scene.add.container(x, originY - 4);
     const outer = this.scene.add.rectangle(0, 0, 24, 96, 0x8fe7ff, 0.62).setAngle(direction * -30);
     const inner = this.scene.add.rectangle(direction * 8, 0, 9, 82, 0xf8fdff, 0.86).setAngle(direction * -30);
@@ -87,6 +88,7 @@ export class CombatVfx {
 
   private flashSpiritTalisman(originX: number, originY: number, direction: 1 | -1, skill: SkillDefinition) {
     const startX = originX + direction * 30;
+    if (this.playEffect(startX + direction * 44, originY - 10, skillEffectAssets["spirit-talisman"], direction)) return;
     const charm = this.scene.add.container(startX, originY - 10);
     const trail = this.scene.add.rectangle(-direction * 24, 0, 52, 6, 0x70ddff, 0.32);
     const paper = this.scene.add.rectangle(0, 0, 18, 26, 0xffe7ad, 0.96).setStrokeStyle(2, 0x9b2f32, 0.85);
@@ -98,6 +100,7 @@ export class CombatVfx {
   private flashHunterShot(originX: number, originY: number, direction: 1 | -1, skill: SkillDefinition) {
     const width = Math.min(skill.range, 150);
     const startX = originX + direction * (width / 2 + 22);
+    if (this.playEffect(startX, originY - 7, skillEffectAssets["hunter-shot"], direction)) return;
     const shot = this.scene.add.container(startX, originY - 7);
     const line = this.scene.add.rectangle(0, 0, width, 5, 0xd9f0ff, 0.78);
     const core = this.scene.add.rectangle(direction * 12, 0, width * 0.72, 2, 0xfff4b8, 0.94);
@@ -107,6 +110,7 @@ export class CombatVfx {
   }
 
   private flashSkillImpact(x: number, y: number, skillId?: SkillId) {
+    if (this.playEffect(x, y - 18, skillEffectAssets.impact, 1, 55)) return;
     const color = skillId === "sword-cleave" ? 0xa8edff : skillId === "spirit-talisman" ? 0xffd36d : 0xd9f0ff;
     const ring = this.scene.add.circle(x, y - 18, skillId === "spirit-talisman" ? 24 : 18, color, 0.24).setStrokeStyle(2, color, 0.9).setBlendMode(Phaser.BlendModes.ADD);
     const spark = this.scene.add.circle(x, y - 18, 7, 0xffffff, 0.62).setBlendMode(Phaser.BlendModes.ADD);
@@ -117,5 +121,19 @@ export class CombatVfx {
     if (skillId === "sword-cleave") return "#a8edff";
     if (skillId === "spirit-talisman") return "#ffd36d";
     return skillId === "hunter-shot" ? "#d9f0ff" : "#7ed7ff";
+  }
+
+  private playEffect(
+    x: number,
+    y: number,
+    effect: { textureKey: string; animationKey: string },
+    direction: 1 | -1,
+    depth = 54
+  ) {
+    if (!this.scene.textures.exists(effect.textureKey) || !this.scene.anims.exists(effect.animationKey)) return false;
+    const sprite = this.scene.add.sprite(x, y, effect.textureKey).setFlipX(direction < 0).setDepth(depth);
+    sprite.play(effect.animationKey);
+    sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => sprite.destroy());
+    return true;
   }
 }

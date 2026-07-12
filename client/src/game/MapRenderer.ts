@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { DEFAULT_GAME_MAP, type GameMapData, type MapInteractableData, type QuestSnapshot } from "@penglai/shared";
 import {
   anpingCargoChestTextureKey,
+  interactableTextureKeys,
   mapBackgroundLayers,
   mistOverlayTextureKey,
   npcVisualAssets,
@@ -386,7 +387,10 @@ export class MapRenderer {
   }
 
   private addInteractableLandmark(interactable: MapInteractableData) {
-    if (interactable.kind === "lantern") {
+    const textureKey = interactableTextureKeys[interactable.kind];
+    if (this.hasUsableTexture(textureKey)) {
+      this.add.image(interactable.x, interactable.y, textureKey).setOrigin(0.5, 1).setDepth(15);
+    } else if (interactable.kind === "lantern") {
       this.addBreakwaterLantern(interactable.x, interactable.y, interactable.name);
       this.add.circle(interactable.x, interactable.y - 46, 32, ColorHex.goldBright, 0.07).setStrokeStyle(1, ColorHex.gold, 0.28);
     } else if (interactable.kind === "tide-gauge") {

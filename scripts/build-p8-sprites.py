@@ -99,6 +99,28 @@ def main():
     chest = Image.open(SOURCE / "cargo_chest_alpha.png").convert("RGBA")
     fit_subject(chest, (96, 80), (90, 72), 76).save(PUBLIC / "props" / "anping_cargo_chest.png", optimize=True)
 
+    interactable_specs = {
+        "breakwater_lantern": ((96, 112), (84, 104), 108),
+        "tide_gauge": ((96, 112), (84, 104), 108),
+        "tea_seal": ((112, 96), (104, 88), 92),
+        "timber_tablet": ((96, 112), (86, 104), 108),
+        "camphor_lens": ((112, 112), (104, 104), 108),
+    }
+    for name, (frame_size, max_size, bottom) in interactable_specs.items():
+        source = Image.open(SOURCE / "interactables" / f"{name}_alpha.png").convert("RGBA")
+        destination = PUBLIC / "interactables" / f"{name}.png"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fit_subject(source, frame_size, max_size, bottom).save(destination, optimize=True)
+
+    effect_specs = {
+        "sword_cleave": ((128, 96), (120, 88), 92),
+        "spirit_talisman": ((128, 80), (120, 72), 76),
+        "hunter_shot": ((160, 64), (152, 56), 60),
+        "skill_impact": ((96, 96), (88, 88), 92),
+    }
+    for name, (frame_size, max_size, bottom) in effect_specs.items():
+        save_strip(f"effects/{name}_alpha.png", PUBLIC / "effects" / f"{name}.png", 4, frame_size, max_size, bottom)
+
     npc_names = [
         "herbalist_lin", "merchant_chen", "lighthouse_apprentice", "breakwater_scout",
         "tide_researcher_yu", "warehouse_keeper", "cavern_scholar", "archive_curator",
@@ -137,6 +159,11 @@ def main():
         PUBLIC / "effects" / "basic_ink_slash.png": (384, 64),
         PUBLIC / "props" / "anping_cargo_chest.png": (96, 80),
     }
+    expected_sizes.update({PUBLIC / "interactables" / f"{name}.png": frame_size for name, (frame_size, _, _) in interactable_specs.items()})
+    expected_sizes.update({
+        PUBLIC / "effects" / f"{name}.png": (frame_size[0] * 4, frame_size[1])
+        for name, (frame_size, _, _) in effect_specs.items()
+    })
     expected_sizes.update({PUBLIC / "npcs" / f"{name}_idle.png": (320, 80) for name in npc_names})
     expected_sizes.update({
         PUBLIC / "monsters" / f"{name}_idle.png": (frame_size[0] * 4, frame_size[1])

@@ -1,4 +1,4 @@
-import type { MapId, MonsterKind, PlayerAnimation } from "@penglai/shared";
+import type { MapId, MapInteractableKind, MonsterKind, PlayerAnimation } from "@penglai/shared";
 
 export interface SpriteSheetAsset {
   key: string;
@@ -91,6 +91,21 @@ export const anpingCargoChestTextureKey = "prop_anping_cargo_chest";
 export const basicInkSlashTextureKey = "effect_basic_ink_slash";
 export const basicInkSlashAnimationKey = "anim_effect_basic_ink_slash";
 
+export const interactableTextureKeys: Record<MapInteractableKind, string> = {
+  lantern: "interactable_breakwater_lantern",
+  "tide-gauge": "interactable_tide_gauge",
+  seal: "interactable_tea_seal",
+  tablet: "interactable_timber_tablet",
+  lens: "interactable_camphor_lens"
+};
+
+export const skillEffectAssets = {
+  "sword-cleave": { textureKey: "effect_sword_cleave", animationKey: "anim_effect_sword_cleave" },
+  "spirit-talisman": { textureKey: "effect_spirit_talisman", animationKey: "anim_effect_spirit_talisman" },
+  "hunter-shot": { textureKey: "effect_hunter_shot", animationKey: "anim_effect_hunter_shot" },
+  impact: { textureKey: "effect_skill_impact", animationKey: "anim_effect_skill_impact" }
+} as const;
+
 export interface NpcVisualAsset {
   textureKey: string;
   animationKey: string;
@@ -144,6 +159,11 @@ export const optionalImageAssets: ImageAsset[] = [
     path: "assets/p8/props/anping_cargo_chest.png",
     enabled: externalMapArtEnabled
   },
+  ...Object.entries(interactableTextureKeys).map(([kind, key]) => ({
+    key,
+    path: `assets/p8/interactables/${({ lantern: "breakwater_lantern", "tide-gauge": "tide_gauge", seal: "tea_seal", tablet: "timber_tablet", lens: "camphor_lens" } as const)[kind as MapInteractableKind]}.png`,
+    enabled: externalMapArtEnabled
+  })),
   {
     key: "bg_historical_fog_harbor_test",
     path: "assets/maps/historical/fog_harbor_test_backplate.png",
@@ -328,6 +348,22 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
     animationKey: basicInkSlashAnimationKey,
     enabled: externalSpritesEnabled
   },
+  ...([
+    [skillEffectAssets["sword-cleave"], "sword_cleave", 128, 96],
+    [skillEffectAssets["spirit-talisman"], "spirit_talisman", 128, 80],
+    [skillEffectAssets["hunter-shot"], "hunter_shot", 160, 64],
+    [skillEffectAssets.impact, "skill_impact", 96, 96]
+  ] as const).map(([effect, filename, frameWidth, frameHeight]) => ({
+    key: effect.textureKey,
+    path: `assets/p8/effects/${filename}.png`,
+    frameWidth,
+    frameHeight,
+    frameCount: 4,
+    frameRate: 16,
+    repeat: 0,
+    animationKey: effect.animationKey,
+    enabled: externalSpritesEnabled
+  })),
   ...Object.entries(p8MonsterFrames).map(([kind, [frameWidth, frameHeight]]) => ({
     key: monsterTextureKeys[kind as MonsterKind],
     path: `assets/p8/monsters/${kind.replaceAll("-", "_")}_idle.png`,
