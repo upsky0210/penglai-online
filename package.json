@@ -28,7 +28,8 @@
     "smoke:broadcast-budget": "node scripts/broadcast-budget-smoke.mjs",
     "smoke:classroom-load": "node scripts/classroom-load-probe.mjs",
     "audit:ui-text": "node scripts/audit-ui-text.mjs",
-    "check:beta:v02": "node scripts/beta-v02-check.mjs && npm run audit:ui-text && npm run typecheck && npm --workspace client run build",
+    "check:p8-g": "node scripts/p8-g-density-check.mjs",
+    "check:beta:v02": "node scripts/beta-v02-check.mjs && npm run audit:ui-text && npm run check:p8-g && npm run typecheck && npm --workspace client run build",
     "check:beta": "npm run typecheck && npm --workspace client run build && npm run smoke && npm run smoke:multi && npm run smoke:save-roundtrip && npm run smoke:message-validation && npm run smoke:save-failure-retry && npm run smoke:broadcast-budget",
     "check:release": "node scripts/release-check.mjs",
     "typecheck": "npm --workspace shared run typecheck && npm --workspace server run typecheck && npm --workspace client run typecheck"

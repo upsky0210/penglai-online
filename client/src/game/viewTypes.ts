@@ -2,6 +2,7 @@ import type Phaser from "phaser";
 
 export interface MonsterView {
   body: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Sprite;
+  shadow: Phaser.GameObjects.Ellipse;
   eye?: Phaser.GameObjects.Arc;
   hpBack: Phaser.GameObjects.Rectangle;
   hpFill: Phaser.GameObjects.Rectangle;

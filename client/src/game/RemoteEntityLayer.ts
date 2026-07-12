@@ -4,6 +4,7 @@ import { monsterAnimationKeys, monsterTextureKeys } from "./assetManifest";
 import { GameAudioManager } from "./audioManager";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
 import type { ItemDropView, MonsterView } from "./viewTypes";
+import { visualQuality } from "./visualQuality";
 
 const fallbackTextures: Record<MonsterSnapshot["kind"], string> = {
   "field-rat": "monster_field_rat_fallback", "mist-slime": "monster_mist_slime_fallback", "tide-watcher": "monster_tide_watcher_fallback",
@@ -32,6 +33,7 @@ export class RemoteEntityLayer {
   private readonly monsters = new Map<string, MonsterView>();
   private readonly itemDrops = new Map<string, ItemDropView>();
   private monsterSnapshots = new Map<string, MonsterSnapshot>();
+  private readonly monsterAliveStates = new Map<string, boolean>();
   private remoteAttackSoundReadyAt = 0;
 
   constructor(private readonly scene: Phaser.Scene, private readonly options: RemoteEntityLayerOptions) {}
@@ -67,8 +69,9 @@ export class RemoteEntityLayer {
         marker = this.scene.add.sprite(player.x, player.y, this.options.getPlayerTextureKey(player.animation)).setTint(0xd9a441).setDepth(42);
         this.remotePlayers.set(player.id, marker);
       }
-      marker.setPosition(player.x, player.y).setFlipX(player.facing === "left").setAlpha(player.hp > 0 ? 1 : 0.35);
-      this.options.applyPlayerAnimation(marker, player.animation);
+      const visible = this.isNearCamera(player.x, player.y, 120);
+      marker.setPosition(player.x, player.y).setFlipX(player.facing === "left").setAlpha(player.hp > 0 ? 1 : 0.35).setVisible(visible);
+      if (visible) this.options.applyPlayerAnimation(marker, player.animation); else marker.stop();
       const previous = this.remotePlayerAnimations.get(player.id);
       const attacking = player.animation === "attack" || player.animation === "skill";
       if (attacking && player.animation !== previous && player.hp > 0) this.playRemoteAttackTelegraph(player);
@@ -85,22 +88,38 @@ export class RemoteEntityLayer {
     const isSkill = player.animation === "skill";
     this.options.flashAttackTelegraph(player.x, player.y, player.facing === "left" ? -1 : 1, player.className, isSkill);
     if (this.scene.cameras.main.worldView.contains(player.x, player.y) && this.scene.time.now >= this.remoteAttackSoundReadyAt) {
-      this.remoteAttackSoundReadyAt = this.scene.time.now + 150;
+      this.remoteAttackSoundReadyAt = this.scene.time.now + visualQuality.remoteEffectCooldownMs;
       this.options.audio.playRemoteAttackSound(isSkill, CLASS_SKILL_IDS[player.className]);
     }
   }
 
   private applyMonsters(monsters: MonsterSnapshot[]) {
     this.monsterSnapshots = new Map(monsters.map((monster) => [monster.id, monster]));
+    let visibleLabelCount = 0;
     for (const monster of monsters) {
       const view = this.getOrCreateMonster(monster);
+      const visible = this.isNearCamera(monster.x, monster.y, 110);
+      const wasAlive = this.monsterAliveStates.get(monster.id);
       view.baseX = monster.x;
-      view.body.setPosition(monster.x + view.hitOffsetX, monster.y).setAlpha(monster.alive ? 1 : 0.25);
-      if (view.body instanceof Phaser.GameObjects.Sprite) { view.body.setFlipX(monster.facing === "left"); this.applyMonsterAnimation(view, monster.kind); }
-      view.eye?.setPosition(monster.x + 8, monster.y - 4).setAlpha(monster.alive ? 1 : 0.1);
-      view.hpBack.setPosition(monster.x, monster.y - 28).setAlpha(monster.alive ? 1 : 0);
-      view.hpFill.setPosition(monster.x - 18, monster.y - 28).setDisplaySize(36 * Phaser.Math.Clamp(monster.maxHp ? monster.hp / monster.maxHp : 0, 0, 1), 5).setAlpha(monster.alive ? 1 : 0);
-      view.label.setPosition(monster.x - 28, monster.y - 52).setAlpha(monster.alive ? 1 : 0.3);
+      view.body.setPosition(monster.x + view.hitOffsetX, monster.y).setVisible(visible);
+      view.shadow.setPosition(monster.x, monster.y + 16).setVisible(visible && monster.alive);
+      if (monster.alive) {
+        view.body.setAlpha(1).setDisplaySize(...this.getDisplaySize(monster.kind));
+        if (view.body instanceof Phaser.GameObjects.Sprite) view.body.clearTint();
+      } else if (wasAlive !== false) {
+        this.playMonsterDeath(view, monster.x, monster.y);
+      }
+      if (view.body instanceof Phaser.GameObjects.Sprite) {
+        view.body.setFlipX(monster.facing === "left");
+        if (visible && monster.alive) this.applyMonsterAnimation(view, monster.kind); else view.body.stop();
+      }
+      view.eye?.setPosition(monster.x + 8, monster.y - 4).setVisible(visible && monster.alive);
+      view.hpBack.setPosition(monster.x, monster.y - 28).setVisible(visible && monster.alive);
+      view.hpFill.setPosition(monster.x - 18, monster.y - 28).setDisplaySize(36 * Phaser.Math.Clamp(monster.maxHp ? monster.hp / monster.maxHp : 0, 0, 1), 5).setVisible(visible && monster.alive);
+      const showLabel = visible && monster.alive && visibleLabelCount < visualQuality.maxWorldLabels;
+      if (showLabel) visibleLabelCount += 1;
+      view.label.setPosition(monster.x - 42, monster.y - 54).setVisible(showLabel);
+      this.monsterAliveStates.set(monster.id, monster.alive);
       if (monster.hitAt > view.lastHitAt) {
         view.lastHitAt = monster.hitAt; this.flashMonster(view);
         this.scene.time.delayedCall(80, () => this.restoreMonster(view, monster.kind));
@@ -110,15 +129,22 @@ export class RemoteEntityLayer {
     for (const [id, view] of this.monsters) {
       if (liveIds.has(id)) continue;
       this.scene.tweens.killTweensOf(view);
-      view.body.destroy(); view.eye?.destroy(); view.hpBack.destroy(); view.hpFill.destroy(); view.label.destroy(); this.monsters.delete(id);
+      view.body.destroy(); view.shadow.destroy(); view.eye?.destroy(); view.hpBack.destroy(); view.hpFill.destroy(); view.label.destroy(); this.monsters.delete(id);
+      this.monsterAliveStates.delete(id);
     }
     this.options.onMonsterSnapshotsChanged();
   }
 
   private applyItemDrops(drops: ItemDropSnapshot[]) {
+    let visibleLabelCount = 0;
     for (const drop of drops) {
       const view = this.getOrCreateItemDrop(drop);
-      view.body.setPosition(drop.x, drop.y - 10); view.shine.setPosition(drop.x, drop.y - 18); view.label.setPosition(drop.x - 44, drop.y - 44);
+      const visible = this.isNearCamera(drop.x, drop.y, 80);
+      view.body.setPosition(drop.x, drop.y - 10).setVisible(visible);
+      view.shine.setPosition(drop.x, drop.y - 18).setVisible(visible && visualQuality.showSecondaryGlows);
+      const showLabel = visible && visibleLabelCount < visualQuality.maxWorldLabels;
+      if (showLabel) visibleLabelCount += 1;
+      view.label.setPosition(drop.x - 44, drop.y - 44).setVisible(showLabel);
     }
     const liveIds = new Set(drops.map((drop) => drop.id));
     for (const [id, view] of this.itemDrops) {
@@ -144,12 +170,13 @@ export class RemoteEntityLayer {
     if (existing) return existing;
     const body = this.scene.add.sprite(monster.x, monster.y, this.getTextureKey(monster.kind)).setDepth(34);
     body.setDisplaySize(...this.getDisplaySize(monster.kind));
+    const shadow = this.scene.add.ellipse(monster.x, monster.y + 16, 42, 10, ColorHex.shadow, 0.48).setDepth(33);
     const eye = this.usesFallbackEye(monster.kind) ? this.scene.add.circle(monster.x + 8, monster.y - 4, 3, 0xf2efe6).setDepth(35) : undefined;
     const hpBack = this.scene.add.rectangle(monster.x, monster.y - 28, 40, 7, ColorHex.barTrack).setOrigin(0.5).setStrokeStyle(1, ColorHex.gold, 0.4).setDepth(36);
     const hpFill = this.scene.add.rectangle(monster.x - 18, monster.y - 28, 36, 5, ColorHex.hp).setOrigin(0, 0.5).setDepth(37);
-    const label = this.scene.add.text(monster.x - 28, monster.y - 54, monster.name, { fontFamily: uiFont, fontSize: "11px", color: ColorText.parchment, stroke: ColorText.ink, strokeThickness: 3 }).setDepth(37);
+    const label = this.scene.add.text(monster.x - 42, monster.y - 54, monster.name, { fontFamily: uiFont, fontSize: "11px", color: ColorText.parchment, stroke: ColorText.ink, strokeThickness: 3, fixedWidth: 84, align: "center" }).setDepth(37);
     if (eye) this.scene.tweens.add({ targets: eye, y: eye.y - 2, duration: 360, yoyo: true, repeat: -1 });
-    const view = { body, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt, baseX: monster.x, hitOffsetX: 0 };
+    const view = { body, shadow, eye, hpBack, hpFill, label, lastHitAt: monster.hitAt, baseX: monster.x, hitOffsetX: 0 };
     this.monsters.set(monster.id, view);
     return view;
   }
@@ -175,6 +202,18 @@ export class RemoteEntityLayer {
   }
   private flashMonster(view: MonsterView) { if (view.body instanceof Phaser.GameObjects.Sprite) view.body.setTint(0xf2efe6); else view.body.setFillStyle(0xf2efe6); }
   private restoreMonster(view: MonsterView, kind: MonsterSnapshot["kind"]) { if (view.body instanceof Phaser.GameObjects.Sprite) view.body.clearTint(); else view.body.setFillStyle(this.getColor(kind)); }
+  private playMonsterDeath(view: MonsterView, x: number, y: number) {
+    if (view.body instanceof Phaser.GameObjects.Sprite) view.body.stop().setTint(0x24332f);
+    else view.body.setFillStyle(0x24332f);
+    this.scene.tweens.add({ targets: view.body, alpha: 0.08, scaleX: view.body.scaleX * 0.72, scaleY: view.body.scaleY * 0.72, y: y - 12, duration: 360, ease: "Quad.easeIn" });
+    if (!visualQuality.showSecondaryGlows || !this.isNearCamera(x, y, 40)) return;
+    const motes = Array.from({ length: 4 }, (_, index) => this.scene.add.circle(x, y - 10, 3 + index % 2, index % 2 ? ColorHex.mistBlue : ColorHex.inkGreenDeep, 0.72).setDepth(38));
+    motes.forEach((mote, index) => this.scene.tweens.add({ targets: mote, x: x + (index - 1.5) * 14, y: y - 28 - index * 4, alpha: 0, duration: 320, onComplete: () => mote.destroy() }));
+  }
+  private isNearCamera(x: number, y: number, padding: number) {
+    const view = this.scene.cameras.main.worldView;
+    return Phaser.Geom.Rectangle.Contains(new Phaser.Geom.Rectangle(view.x - padding, view.y - padding, view.width + padding * 2, view.height + padding * 2), x, y);
+  }
   private getColor(kind: MonsterSnapshot["kind"]) {
     const colors: Partial<Record<MonsterSnapshot["kind"], number>> = { "tide-watcher": ColorHex.vermilion, "warehouse-sentry": ColorHex.deepTeal, "coral-warden": 0xd46a4c, "archive-guardian": 0x6d5a83, "astral-keeper": 0x596b8f, "lens-sentinel": 0x4f7c86, "star-moth": 0x9f7a37, "ink-sprite": 0x6aa9d8, "archive-drifter": 0xd9e6e5, "reef-wisp": 0x7bd0d3, "cave-crab": 0x74c7c8, "mist-puppet": 0x9b7b52, "warehouse-rat": 0xc0703e };
     return colors[kind] ?? (kind === "mist-slime" ? 0x49b8ad : 0xa84f3c);

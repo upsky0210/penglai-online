@@ -78,6 +78,15 @@ def save_strip(source_name: str, destination: Path, frame_count: int, frame_size
 
 
 def main():
+    platform_dir = PUBLIC / "platforms"
+    platform_dir.mkdir(parents=True, exist_ok=True)
+    for name in ["stone", "wood", "roof", "dock", "mountain"]:
+        source = Image.open(SOURCE / "platforms" / f"{name}.png").convert("RGB")
+        crop_height = round(source.width / 4)
+        top = max(0, (source.height - crop_height) // 2)
+        strip = source.crop((0, top, source.width, min(source.height, top + crop_height)))
+        strip.resize((256, 64), Image.Resampling.LANCZOS).save(platform_dir / f"{name}.png", optimize=True)
+
     hero = Image.open(SOURCE / "hero_alpha.png").convert("RGBA")
     hero_specs = [
         ("player_idle.png", 0, [0.102, 0.215, 0.326, 0.432], 0.105, (80, 80), (68, 70), (0.0, 0.215)),
@@ -159,6 +168,7 @@ def main():
         PUBLIC / "effects" / "basic_ink_slash.png": (384, 64),
         PUBLIC / "props" / "anping_cargo_chest.png": (96, 80),
     }
+    expected_sizes.update({platform_dir / f"{name}.png": (256, 64) for name in ["stone", "wood", "roof", "dock", "mountain"]})
     expected_sizes.update({PUBLIC / "interactables" / f"{name}.png": frame_size for name, (frame_size, _, _) in interactable_specs.items()})
     expected_sizes.update({
         PUBLIC / "effects" / f"{name}.png": (frame_size[0] * 4, frame_size[1])
@@ -172,7 +182,8 @@ def main():
     for path, expected_size in expected_sizes.items():
         image = Image.open(path).convert("RGBA")
         assert image.size == expected_size, f"{path.name}: expected {expected_size}, got {image.size}"
-        assert all(image.getpixel(point)[3] == 0 for point in [(0, 0), (image.width - 1, 0), (0, image.height - 1), (image.width - 1, image.height - 1)]), f"{path.name}: corners must be transparent"
+        if image.mode == "RGBA" and path.parent != platform_dir:
+            assert all(image.getpixel(point)[3] == 0 for point in [(0, 0), (image.width - 1, 0), (0, image.height - 1), (image.width - 1, image.height - 1)]), f"{path.name}: corners must be transparent"
 
 
 if __name__ == "__main__":

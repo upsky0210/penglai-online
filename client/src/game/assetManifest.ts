@@ -83,7 +83,14 @@ export const monsterAnimationKeys: Record<MonsterKind, string> = {
   "astral-keeper": "anim_monster_astral_keeper_idle"
 };
 
-export const platformTextureKey = "tile_harbor_platform";
+export const platformTextureKeys: Record<MapId, string> = {
+  "fog-harbor-test": "tile_platform_stone",
+  "mist-breakwater": "tile_platform_dock",
+  "old-harbor-warehouse": "tile_platform_wood",
+  "coral-tide-cavern": "tile_platform_dock",
+  "sunken-archive": "tile_platform_roof",
+  "starlit-observatory": "tile_platform_mountain"
+};
 export const mistOverlayTextureKey = "effect_mist_overlay";
 export const anpingHarborClerkTextureKey = "npc_anping_harbor_clerk";
 export const anpingHarborClerkAnimationKey = "anim_npc_anping_harbor_clerk_idle";
@@ -239,11 +246,8 @@ export const optionalImageAssets: ImageAsset[] = [
     path: "assets/effects/mist_overlay.png",
     enabled: externalMapArtEnabled
   },
-  {
-    key: platformTextureKey,
-    path: "assets/tiles/harbor_platform_tiles.png",
-    enabled: externalMapArtEnabled
-  }
+  ...Object.entries({ stone: "tile_platform_stone", wood: "tile_platform_wood", roof: "tile_platform_roof", dock: "tile_platform_dock", mountain: "tile_platform_mountain" })
+    .map(([name, key]) => ({ key, path: `assets/p8/platforms/${name}.png`, enabled: externalMapArtEnabled }))
 ];
 
 export const optionalSpriteSheets: SpriteSheetAsset[] = [

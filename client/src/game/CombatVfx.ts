@@ -4,8 +4,10 @@ import { ColorText, uiFont } from "./uiTheme";
 import type { MonsterView } from "./viewTypes";
 import { GameAudioManager } from "./audioManager";
 import { basicInkSlashAnimationKey, basicInkSlashTextureKey, skillEffectAssets } from "./assetManifest";
+import { visualQuality } from "./visualQuality";
 
 export class CombatVfx {
+  private activeEffectCount = 0;
   constructor(private readonly scene: Phaser.Scene, private readonly audio: GameAudioManager) {}
 
   flashHitbox(
@@ -27,6 +29,7 @@ export class CombatVfx {
     isSkill: boolean,
     getPrimarySkill: (className: CharacterClass) => SkillDefinition
   ) {
+    if (!this.isNearCamera(x, y, 120) || this.activeEffectCount >= visualQuality.maxCombatEffects) return;
     if (!isSkill) return this.flashBasicAttack(x, y, direction);
     if (className === "swordsman") return this.flashSwordCleave(x, y, direction);
     if (className === "talisman") return this.flashSpiritTalisman(x, y, direction, getPrimarySkill("talisman"));
@@ -34,14 +37,14 @@ export class CombatVfx {
   }
 
   showDamage(monster: MonsterView | undefined, damage: number, defeated: boolean, isSkill = false, skillId?: SkillId) {
-    if (!monster) return;
+    if (!monster || !this.reserveEffect(monster.body.x, monster.body.y, 80)) return;
     if (isSkill) this.flashSkillImpact(monster.body.x, monster.body.y, skillId);
     const text = this.scene.add.text(monster.body.x - 10, monster.body.y - 72, defeated ? "擊破" : `-${damage}`, {
       fontFamily: uiFont, fontSize: defeated ? "20px" : "17px",
       color: defeated ? ColorText.riceWhite : isSkill ? ColorText.mistBlue : ColorText.gold,
       stroke: ColorText.ink, strokeThickness: 4
     });
-    this.scene.tweens.add({ targets: text, y: text.y - 28, alpha: 0, duration: 520, onComplete: () => text.destroy() });
+    this.scene.tweens.add({ targets: text, y: text.y - 28, alpha: 0, duration: 520, onComplete: () => { text.destroy(); this.releaseEffect(); } });
   }
 
   showMiss(
@@ -51,7 +54,7 @@ export class CombatVfx {
     skillId?: SkillId
   ) {
     this.audio.playMissSound(isSkill, skillId);
-    if (!player) return;
+    if (!player || !this.reserveEffect(player.x, player.y, 100)) return;
     const direction = facing === "right" ? 1 : -1;
     const color = isSkill ? this.getSkillEffectColor(skillId) : "#d8cfae";
     const x = player.x + direction * 58;
@@ -59,17 +62,18 @@ export class CombatVfx {
     const text = this.scene.add.text(x - 24, y, isSkill ? "未命中" : "落空", { fontSize: "14px", color, stroke: "#181018", strokeThickness: 3 });
     const marker = this.scene.add.circle(x, y + 12, isSkill ? 16 : 11, Phaser.Display.Color.HexStringToColor(color).color, 0.18);
     marker.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color, 0.72).setBlendMode(Phaser.BlendModes.ADD);
-    this.scene.tweens.add({ targets: [text, marker], x: `+=${direction * 16}`, y: "-=18", alpha: 0, duration: 420, ease: "Quad.easeOut", onComplete: () => { text.destroy(); marker.destroy(); } });
+    this.scene.tweens.add({ targets: [text, marker], x: `+=${direction * 16}`, y: "-=18", alpha: 0, duration: 420, ease: "Quad.easeOut", onComplete: () => { text.destroy(); marker.destroy(); this.releaseEffect(); } });
   }
 
   private flashBasicAttack(originX: number, originY: number, direction: 1 | -1) {
     if (this.scene.textures.exists(basicInkSlashTextureKey) && this.scene.anims.exists(basicInkSlashAnimationKey)) {
+      if (!this.reserveEffect(originX, originY, 100)) return;
       const slash = this.scene.add
         .sprite(originX + direction * 46, originY - 4, basicInkSlashTextureKey)
         .setFlipX(direction < 0)
         .setDepth(54);
       slash.play(basicInkSlashAnimationKey);
-      slash.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => slash.destroy());
+      slash.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => { slash.destroy(); this.releaseEffect(); });
       return;
     }
     const hitbox = this.scene.add.rectangle(originX + direction * 42, originY, 58, 34, 0xffd36d, 0.45);
@@ -110,7 +114,9 @@ export class CombatVfx {
   }
 
   private flashSkillImpact(x: number, y: number, skillId?: SkillId) {
-    if (this.playEffect(x, y - 18, skillEffectAssets.impact, 1, 55)) return;
+    const playedSprite = this.playEffect(x, y - 18, skillEffectAssets.impact, 1, 55);
+    if (visualQuality.showSecondaryGlows) this.flashTideMist(x, y - 8);
+    if (playedSprite) return;
     const color = skillId === "sword-cleave" ? 0xa8edff : skillId === "spirit-talisman" ? 0xffd36d : 0xd9f0ff;
     const ring = this.scene.add.circle(x, y - 18, skillId === "spirit-talisman" ? 24 : 18, color, 0.24).setStrokeStyle(2, color, 0.9).setBlendMode(Phaser.BlendModes.ADD);
     const spark = this.scene.add.circle(x, y - 18, 7, 0xffffff, 0.62).setBlendMode(Phaser.BlendModes.ADD);
@@ -123,6 +129,13 @@ export class CombatVfx {
     return skillId === "hunter-shot" ? "#d9f0ff" : "#7ed7ff";
   }
 
+  private flashTideMist(x: number, y: number) {
+    for (const offset of [-18, 0, 18]) {
+      const mist = this.scene.add.ellipse(x + offset, y, 34, 12, 0xa8d8d5, 0.18).setDepth(53);
+      this.scene.tweens.add({ targets: mist, x: mist.x + offset * 0.35, y: y - 18, scaleX: 1.45, alpha: 0, duration: 300, onComplete: () => mist.destroy() });
+    }
+  }
+
   private playEffect(
     x: number,
     y: number,
@@ -130,10 +143,23 @@ export class CombatVfx {
     direction: 1 | -1,
     depth = 54
   ) {
-    if (!this.scene.textures.exists(effect.textureKey) || !this.scene.anims.exists(effect.animationKey)) return false;
+    if (!this.scene.textures.exists(effect.textureKey) || !this.scene.anims.exists(effect.animationKey) || !this.reserveEffect(x, y, 120)) return false;
     const sprite = this.scene.add.sprite(x, y, effect.textureKey).setFlipX(direction < 0).setDepth(depth);
     sprite.play(effect.animationKey);
-    sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => sprite.destroy());
+    sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => { sprite.destroy(); this.releaseEffect(); });
     return true;
+  }
+
+  private reserveEffect(x: number, y: number, padding: number) {
+    if (!this.isNearCamera(x, y, padding) || this.activeEffectCount >= visualQuality.maxCombatEffects) return false;
+    this.activeEffectCount += 1;
+    return true;
+  }
+
+  private releaseEffect() { this.activeEffectCount = Math.max(0, this.activeEffectCount - 1); }
+
+  private isNearCamera(x: number, y: number, padding: number) {
+    const view = this.scene.cameras.main.worldView;
+    return Phaser.Geom.Rectangle.Contains(new Phaser.Geom.Rectangle(view.x - padding, view.y - padding, view.width + padding * 2, view.height + padding * 2), x, y);
   }
 }

@@ -6,9 +6,10 @@ import {
   mapBackgroundLayers,
   mistOverlayTextureKey,
   npcVisualAssets,
-  platformTextureKey
+  platformTextureKeys
 } from "./assetManifest";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
+import { visualQuality } from "./visualQuality";
 
 export interface MapRendererOptions {
   getPlayer: () => Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | undefined;
@@ -96,25 +97,26 @@ export class MapRenderer {
     }
 
     for (const zone of this.currentMap.safeZones) {
-      this.add.rectangle(zone.x, zone.y, zone.width, zone.height, 0x5ac06f, 0.14);
-      this.add.text(zone.x - 52, zone.y - zone.height / 2 + 18, zone.name, {
+      const markerY = zone.y + zone.height / 2 - 8;
+      this.add.ellipse(zone.x, markerY, Math.min(zone.width, 150), 18, ColorHex.goldBright, 0.08)
+        .setStrokeStyle(1, ColorHex.jade, 0.46).setDepth(14);
+      for (const direction of [-1, 1]) {
+        this.add.rectangle(zone.x + direction * Math.min(zone.width / 2 - 12, 58), markerY - 22, 4, 38, ColorHex.woodDark).setDepth(15);
+        this.add.circle(zone.x + direction * Math.min(zone.width / 2 - 12, 58), markerY - 44, 7, ColorHex.goldBright, 0.82).setDepth(16);
+      }
+      this.add.text(zone.x - 52, markerY - 68, zone.name, {
         fontFamily: uiFont,
-        fontSize: "13px",
-        color: ColorText.jade
-      });
+        fontSize: "11px",
+        color: ColorText.jade,
+        backgroundColor: "#10271fcc",
+        fixedWidth: 104,
+        align: "center",
+        padding: { x: 4, y: 2 }
+      }).setDepth(46);
     }
     this.addHistoricalMapLandmarks();
     for (const portal of this.currentMap.portals) {
-      this.add.circle(portal.x, portal.y - 26, 42, ColorHex.gold, 0.12);
-      this.add.rectangle(portal.x, portal.y - 20, 54, 72, ColorHex.deepTeal, 0.7).setStrokeStyle(2, ColorHex.gold, 0.75);
-      this.add.rectangle(portal.x, portal.y - 54, 6, 110, ColorHex.goldBright, 0.38);
-      this.add.text(portal.x - 42, portal.y - 78, portal.name, {
-        fontFamily: uiFont,
-        fontSize: "12px",
-        color: ColorText.gold,
-        backgroundColor: "#10271fcc",
-        padding: { x: 6, y: 3 }
-      });
+      this.addPortalLandmark(portal);
     }
 
   }
@@ -148,12 +150,9 @@ export class MapRenderer {
         .setScrollFactor(0.62)
         .setAlpha(0.42)
         .setDepth(-40);
-      this.tweens.add({
-        targets: mist,
-        tilePositionX: 192,
-        duration: 12000,
-        repeat: -1
-      });
+      if (visualQuality.animateAmbientLayers) {
+        this.tweens.add({ targets: mist, tilePositionX: 192, duration: 12000, repeat: -1 });
+      }
     }
 
     return true;
@@ -407,14 +406,46 @@ export class MapRenderer {
       this.add.circle(interactable.x, interactable.y - 50, 36, ColorHex.goldBright, 0.08).setStrokeStyle(1, ColorHex.gold, 0.3);
     }
 
-    const status = this.add.text(interactable.x - 38, interactable.y - 118, "", {
+    const status = this.add.text(interactable.x - 48, interactable.y - 118, "", {
       fontFamily: uiFont,
       fontSize: "11px",
       color: ColorText.sand,
       backgroundColor: "#10271fcc",
-      padding: { x: 5, y: 3 }
+      fixedWidth: 96,
+      align: "center",
+      padding: { x: 4, y: 2 }
     });
     this.interactableStatusTexts.set(interactable.id, status);
+  }
+
+  private addPortalLandmark(portal: GameMapData["portals"][number]) {
+    const { x, y } = portal;
+    if (this.currentMapId === "fog-harbor-test") {
+      this.add.rectangle(x - 26, y - 30, 7, 60, ColorHex.woodDark).setDepth(20);
+      this.add.rectangle(x + 26, y - 30, 7, 60, ColorHex.woodDark).setDepth(20);
+      this.add.triangle(x, y - 70, -40, 15, 40, 15, 0, -12, 0x6f3f32).setDepth(21);
+    } else if (this.currentMapId === "mist-breakwater" || this.currentMapId === "coral-tide-cavern") {
+      this.add.rectangle(x, y - 5, 90, 14, ColorHex.woodPlank).setStrokeStyle(1, ColorHex.gold, 0.45).setDepth(20);
+      this.add.rectangle(x - 38, y - 25, 7, 48, ColorHex.woodDark).setDepth(19);
+      this.add.rectangle(x + 38, y - 25, 7, 48, ColorHex.woodDark).setDepth(19);
+      if (visualQuality.showSecondaryGlows) this.add.circle(x, y - 18, 30, ColorHex.goldBright, 0.08).setDepth(18);
+    } else if (this.currentMapId === "old-harbor-warehouse" || this.currentMapId === "sunken-archive") {
+      this.add.rectangle(x, y - 4, 100, 16, ColorHex.woodPlank).setStrokeStyle(1, ColorHex.gold, 0.42).setDepth(20);
+      for (const direction of [-1, 1]) {
+        this.add.rectangle(x + direction * 44, y - 25, 5, 46, ColorHex.woodDark).setDepth(21);
+        this.add.line(x, y - 21, direction * 42, 0, direction * 42, -28, ColorHex.gold, 0.58).setLineWidth(2).setDepth(21);
+      }
+    } else {
+      this.add.ellipse(x, y - 2, 108, 22, 0x806747, 0.78).setStrokeStyle(1, ColorHex.gold, 0.36).setDepth(20);
+      for (const direction of [-1, 1]) {
+        this.add.rectangle(x + direction * 42, y - 24, 4, 42, ColorHex.woodDark).setDepth(21);
+        this.add.triangle(x + direction * 34, y - 48, 0, 0, direction * 18, 7, 0, 14, ColorHex.vermilion, 0.9).setDepth(22);
+      }
+    }
+    this.add.text(x - 52, y - 94, portal.name, {
+      fontFamily: uiFont, fontSize: "11px", color: ColorText.gold, backgroundColor: "#10271fcc",
+      fixedWidth: 104, align: "center", padding: { x: 4, y: 2 }
+    }).setDepth(46);
   }
 
   private addSignpost(x: number, y: number, text: string) {
@@ -533,9 +564,10 @@ export class MapRenderer {
   }
 
   private addMistVeil(x: number, y: number, width: number) {
+    if (!visualQuality.showSecondaryGlows) return;
     const veil = this.add.ellipse(x, y, width, 46, 0xd9e6e5, 0.08);
     const veil2 = this.add.ellipse(x + 44, y - 16, width * 0.64, 34, 0xd9e6e5, 0.06);
-    this.tweens.add({
+    if (visualQuality.animateAmbientLayers) this.tweens.add({
       targets: [veil, veil2],
       x: "+=18",
       alpha: 0.14,
@@ -665,12 +697,14 @@ export class MapRenderer {
         this.add.circle(npc.x, npc.y - 54, 10, 0xf2c078).setDepth(30);
       }
       this.add
-        .text(npc.x - 42, npc.y - 86, npc.name, {
+        .text(npc.x - 48, npc.y - 88, npc.name, {
           fontFamily: uiFont,
-          fontSize: "12px",
+          fontSize: "11px",
           color: ColorText.gold,
           backgroundColor: "#10271f",
-          padding: { x: 6, y: 3 }
+          fixedWidth: 96,
+          align: "center",
+          padding: { x: 4, y: 2 }
         })
         .setDepth(46);
     }
@@ -681,6 +715,7 @@ export class MapRenderer {
       return;
     }
 
+    const platformTextureKey = platformTextureKeys[this.currentMapId];
     for (const platformData of this.currentMap.platforms) {
       if (this.hasUsableTexture(platformTextureKey)) {
         this.add

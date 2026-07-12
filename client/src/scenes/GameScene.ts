@@ -60,6 +60,7 @@ import { CombatVfx } from "../game/CombatVfx";
 import { HudLayer } from "../game/HudLayer";
 import { MapRenderer } from "../game/MapRenderer";
 import { RemoteEntityLayer } from "../game/RemoteEntityLayer";
+import { visualQuality } from "../game/visualQuality";
 import { GameSocket, getGameSocketUrl } from "../net/GameSocket";
 import {
   formatSaveSlot,
@@ -2156,6 +2157,7 @@ export class GameScene extends Phaser.Scene {
       [
         `音效：${this.audio.isMuted() ? "關閉" : "開啟"}`,
         `音量：${Math.round(this.audio.getVolume() * 100)}%`,
+        `畫面模式：${visualQuality.mode === "low" ? "低階" : "標準"}`,
         "",
         "V 關閉 | M 靜音",
         "N 降低 | B 提高"
