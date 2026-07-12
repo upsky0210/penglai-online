@@ -137,11 +137,16 @@ export class MapRenderer {
     this.add.rectangle(mapCenterX, 300, this.currentMap.width, 560, 0x15323b).setDepth(-70);
 
     for (const layer of usableLayers) {
-      this.add
+      const background = this.add
         .tileSprite(mapCenterX, layer.y, this.currentMap.width, layer.height, layer.key)
         .setScrollFactor(layer.scrollFactor)
         .setAlpha(layer.alpha ?? 1)
         .setDepth(layer.depth);
+      if (layer.fitTextureHeight) {
+        const textureSource = this.scene.textures.get(layer.key).getSourceImage() as HTMLImageElement;
+        const scale = layer.height / textureSource.height;
+        background.setTileScale(scale, scale);
+      }
     }
 
     if (this.hasUsableTexture(mistOverlayTextureKey)) {

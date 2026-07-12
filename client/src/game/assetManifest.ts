@@ -25,6 +25,7 @@ export interface MapBackgroundLayer {
   scrollFactor: number;
   alpha?: number;
   depth: number;
+  fitTextureHeight?: boolean;
 }
 
 const externalSpritesEnabled = true;
@@ -87,44 +88,56 @@ export const mistOverlayTextureKey = "effect_mist_overlay";
 
 export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
   "fog-harbor-test": [
-    { key: "bg_fog_harbor_sky", y: 150, height: 300, scrollFactor: 0.2, depth: -60 },
-    { key: "bg_fog_harbor_far", y: 246, height: 220, scrollFactor: 0.35, alpha: 0.95, depth: -55 },
-    { key: "bg_fog_harbor_buildings_back", y: 320, height: 230, scrollFactor: 0.55, depth: -50 },
-    { key: "bg_fog_harbor_buildings_mid", y: 398, height: 260, scrollFactor: 0.82, depth: -45 }
+    { key: "bg_historical_fog_harbor_test", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ],
   "mist-breakwater": [
-    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.2, depth: -60 },
-    { key: "bg_mist_breakwater_far", y: 244, height: 220, scrollFactor: 0.35, alpha: 0.95, depth: -55 },
-    { key: "bg_mist_breakwater_harbor_back", y: 326, height: 240, scrollFactor: 0.55, depth: -50 },
-    { key: "bg_mist_breakwater_harbor_mid", y: 408, height: 260, scrollFactor: 0.82, depth: -45 }
+    { key: "bg_historical_mist_breakwater", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ],
   "old-harbor-warehouse": [
-    { key: "bg_fog_harbor_sky", y: 150, height: 300, scrollFactor: 0.2, depth: -60 },
-    { key: "bg_fog_harbor_far", y: 246, height: 220, scrollFactor: 0.35, alpha: 0.9, depth: -55 },
-    { key: "bg_fog_harbor_buildings_back", y: 320, height: 230, scrollFactor: 0.5, alpha: 0.92, depth: -50 },
-    { key: "bg_fog_harbor_buildings_mid", y: 408, height: 260, scrollFactor: 0.78, alpha: 0.9, depth: -45 }
+    { key: "bg_historical_old_harbor_warehouse", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ],
   "coral-tide-cavern": [
-    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.16, alpha: 0.82, depth: -60 },
-    { key: "bg_mist_breakwater_far", y: 248, height: 230, scrollFactor: 0.28, alpha: 0.78, depth: -55 },
-    { key: "bg_mist_breakwater_harbor_back", y: 338, height: 250, scrollFactor: 0.45, alpha: 0.72, depth: -50 },
-    { key: "bg_mist_breakwater_harbor_mid", y: 424, height: 260, scrollFactor: 0.72, alpha: 0.68, depth: -45 }
+    { key: "bg_historical_coral_tide_cavern", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ],
   "sunken-archive": [
-    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.14, alpha: 0.76, depth: -60 },
-    { key: "bg_mist_breakwater_far", y: 250, height: 230, scrollFactor: 0.24, alpha: 0.72, depth: -55 },
-    { key: "bg_fog_harbor_buildings_back", y: 340, height: 250, scrollFactor: 0.42, alpha: 0.62, depth: -50 },
-    { key: "bg_fog_harbor_buildings_mid", y: 426, height: 260, scrollFactor: 0.7, alpha: 0.58, depth: -45 }
+    { key: "bg_historical_sunken_archive", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ],
   "starlit-observatory": [
-    { key: "bg_mist_breakwater_sky", y: 150, height: 300, scrollFactor: 0.12, alpha: 0.72, depth: -60 },
-    { key: "bg_fog_harbor_far", y: 250, height: 230, scrollFactor: 0.22, alpha: 0.68, depth: -55 },
-    { key: "bg_mist_breakwater_harbor_back", y: 340, height: 250, scrollFactor: 0.4, alpha: 0.62, depth: -50 },
-    { key: "bg_fog_harbor_buildings_mid", y: 426, height: 260, scrollFactor: 0.68, alpha: 0.56, depth: -45 }
+    { key: "bg_historical_starlit_observatory", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
   ]
 };
 
 export const optionalImageAssets: ImageAsset[] = [
+  {
+    key: "bg_historical_fog_harbor_test",
+    path: "assets/maps/historical/fog_harbor_test_backplate.png",
+    enabled: externalMapArtEnabled
+  },
+  {
+    key: "bg_historical_mist_breakwater",
+    path: "assets/maps/historical/mist_breakwater_backplate.png",
+    enabled: externalMapArtEnabled
+  },
+  {
+    key: "bg_historical_old_harbor_warehouse",
+    path: "assets/maps/historical/old_harbor_warehouse_backplate.png",
+    enabled: externalMapArtEnabled
+  },
+  {
+    key: "bg_historical_coral_tide_cavern",
+    path: "assets/maps/historical/coral_tide_cavern_backplate.png",
+    enabled: externalMapArtEnabled
+  },
+  {
+    key: "bg_historical_sunken_archive",
+    path: "assets/maps/historical/sunken_archive_backplate.png",
+    enabled: externalMapArtEnabled
+  },
+  {
+    key: "bg_historical_starlit_observatory",
+    path: "assets/maps/historical/starlit_observatory_backplate.png",
+    enabled: externalMapArtEnabled
+  },
   {
     key: "bg_fog_harbor_sky",
     path: "assets/maps/fog_harbor_test/bg_sky.png",
