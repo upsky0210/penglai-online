@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { DEFAULT_GAME_MAP, historicalChapterGuides, type GameMapData, type MapInteractableData, type QuestSnapshot } from "@penglai/shared";
+import { DEFAULT_GAME_MAP, type GameMapData, type MapInteractableData, type QuestSnapshot } from "@penglai/shared";
 import { mapBackgroundLayers, mistOverlayTextureKey, platformTextureKey } from "./assetManifest";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
 
@@ -110,20 +110,6 @@ export class MapRenderer {
       });
     }
 
-    this.add.text(54, 42, this.currentMap.name, {
-      fontFamily: uiFont,
-      fontSize: "26px",
-      color: ColorText.gold,
-      stroke: ColorText.ink,
-      strokeThickness: 4
-    });
-    this.add.text(54, 80, "左上方顯示操作鍵；掉落物碰到會自動拾取。", {
-      fontFamily: uiFont,
-      fontSize: "12px",
-      color: ColorText.sand,
-      fixedWidth: 560,
-      wordWrap: { width: 560 }
-    });
   }
 
   private addExternalBackgroundLayers() {
@@ -132,8 +118,6 @@ export class MapRenderer {
     if (usableLayers.length === 0) {
       return false;
     }
-
-    this.addHistoricalChapterGuide();
 
     const mapCenterX = this.currentMap.width / 2;
     this.add.rectangle(mapCenterX, 300, this.currentMap.width, 560, 0x15323b).setDepth(-70);
@@ -166,24 +150,6 @@ export class MapRenderer {
     }
 
     return true;
-  }
-
-  private addHistoricalChapterGuide() {
-    const guide = historicalChapterGuides[this.currentMapId];
-    this.add
-      .rectangle(340, 116, 590, 64, ColorHex.inkGreenDeep, 0.86)
-      .setStrokeStyle(1, ColorHex.gold, 0.42)
-      .setDepth(4);
-    this.add
-      .text(60, 91, `${guide.era}｜${guide.focus}\n${guide.fact}　${guide.fictionNotice}`, {
-        fontFamily: uiFont,
-        fontSize: "11px",
-        color: ColorText.sand,
-        fixedWidth: 560,
-        wordWrap: { width: 560 },
-        lineSpacing: 3
-      })
-      .setDepth(5);
   }
 
   private addHistoricalMapLandmarks() {

@@ -5,6 +5,7 @@ import {
   DEFAULT_GAME_MAP,
   DEFAULT_CHARACTER_CLASS,
   GAME_MAPS,
+  historicalChapterGuides,
   ITEM_DEFINITIONS,
   MONSTER_KIND_NAMES,
   SKILL_DEFINITIONS,
@@ -1327,7 +1328,8 @@ export class GameScene extends Phaser.Scene {
     this.questPanel = this.addUiPanel(gameWidth - 292, 18, 274, 136, "任務");
     this.questLogPanel = this.addUiPanel(114, 72, 600, 336, "任務日誌");
     this.characterPanel = this.addUiPanel(gameWidth - 292, 168, 274, 152, "角色");
-    this.guidePanel = this.addUiPanel(gameWidth - 292, 168, 274, 122, "地圖 / 流程");
+    this.guidePanel = this.addUiPanel(gameWidth - 292, 168, 274, 184, "地圖 / 流程");
+    this.guidePanel.body.setFontSize(11).setLineSpacing(3);
     this.announcementPanel = this.addUiPanel(gameWidth / 2 - 210, 86, 420, 150, "公告");
     this.shopPanel = this.addUiPanel(gameWidth / 2 - 190, gameHeight - 390, 380, 206, "商店");
     this.savePanel = this.addUiPanel(18, 350, 306, 180, "存檔");
@@ -2516,10 +2518,13 @@ export class GameScene extends Phaser.Scene {
     const chapterStep = this.getChapterStepSummary();
     const routeHint = this.getRouteHint();
     const zoneName = this.getCurrentZoneName(this.player?.x ?? 0, this.player?.y ?? 0).name;
+    const historicalGuide = historicalChapterGuides[this.currentMapId];
     this.guidePanel.body.setText(
       [
         this.fitPanelLine(`${this.currentMap.name} | ${zoneName}`, 22),
-        this.fitPanelLine(`狀態：${this.getSurvivalSummary()}`, 24),
+        `年代：${historicalGuide.era}`,
+        historicalGuide.focus,
+        "史實啟發；潮霧等異聞為遊戲虛構。",
         this.fitPanelLine(`進度：${chapterStep}`, 24),
         this.fitPanelLine(`${this.getChapterChecklist()} | ${routeHint.replace("下一步：", "")}`, 28)
       ].join("\n")
