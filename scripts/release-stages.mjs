@@ -12,5 +12,6 @@ export const RELEASE_NPM_STAGES = [
   "smoke:save-roundtrip",
   "smoke:message-validation",
   "smoke:save-failure-retry",
-  "smoke:broadcast-budget"
+  "smoke:broadcast-budget",
+  "smoke:classroom-load"
 ];

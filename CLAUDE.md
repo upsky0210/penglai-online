@@ -16,6 +16,7 @@ v1.1 依 Fable 5 紅隊審查修正了三處「規則與事實脫節」(侵權�
 - `npm run typecheck` — 三個 workspace 全檢。
 - `npm run check:beta` — typecheck + client build + smoke + smoke:multi + smoke:save-roundtrip(提交前主閘)。**不含 audit:ui-text。**
 - `npm run check:release` — 發布前總閘：自動以隨機安全 Token、暫存 DB/備份目錄與隨機 port 啟動隔離 server，再跑安全設定、檔案、文案、typecheck、build 與全部 smoke；完成後自動清理，**不需也不可預先啟動 server**。
+- `npm run smoke:classroom-load` — 以獨立暫存 DB/server 實測 10／30 人同圖活動，檢查 tick、快照流量與 save flush；基線見 `docs/P6-CLASSROOM-LOAD-BASELINE.md`。
 - `npm run check:beta:v02` — v0.2 發佈檢查(檔案清單 + audit:ui-text + typecheck + build,**不含 smoke**);不要拿它當提交閘。
 - `npm run smoke:*` — 各系統煙霧測試(multi/interactable/warehouse/cavern/archive/observatory/quest-lock/save-roundtrip…)。
 - `npm run backup:db` / `npm run restore:db` — 備份 / 還原 runtime DB(restore 是破壞性,見下)。

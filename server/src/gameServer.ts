@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { basename, dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   CLASS_SKILL_IDS,
@@ -126,6 +127,7 @@ const monsterChaseSpeedMultiplier = 1.7;
 const monsterChaseLeash = 140;
 const playerRespawnDelayMs = 1500;
 const saveFlushIntervalMs = 2000;
+const worldTickIntervalMs = 1000 / 15;
 const playerHorizontalSpeed = 245;
 const playerVerticalSpeed = 650;
 const playerHorizontalBurst = 110;
@@ -531,6 +533,11 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
 
   if (url.pathname === "/debug/broadcast-stats" && request.method === "GET") {
     sendBroadcastStats(response);
+    return;
+  }
+
+  if (url.pathname === "/debug/load-stats" && request.method === "GET") {
+    sendLoadStats(response);
     return;
   }
 
@@ -1510,20 +1517,65 @@ const broadcastStats = {
   snapshotBytes: 0
 };
 
-function sendBroadcastStats(response: ServerResponse) {
-  const activeMapIds = new Set<string>();
+const worldTickStats = {
+  samples: 0,
+  totalDurationMs: 0,
+  maxDurationMs: 0,
+  totalScheduleDelayMs: 0,
+  maxScheduleDelayMs: 0,
+  firstTickAt: 0,
+  lastTickAt: 0
+};
+let previousWorldTickStartedAt = 0;
+
+function getActiveMapCount() {
+  const activeMapIds = new Set<MapId>();
   for (const playerId of sockets.keys()) {
     const player = players.get(playerId);
     if (player) {
       activeMapIds.add(player.mapId);
     }
   }
+  return activeMapIds.size;
+}
 
-  sendJson(response, 200, {
-    ok: true,
+function getBroadcastMetrics() {
+  return {
     ...broadcastStats,
     online: sockets.size,
-    activeMaps: activeMapIds.size
+    activeMaps: getActiveMapCount()
+  };
+}
+
+function getWorldTickMetrics() {
+  const elapsedMs = worldTickStats.lastTickAt - worldTickStats.firstTickAt;
+  return {
+    ...worldTickStats,
+    averageDurationMs: worldTickStats.samples > 0
+      ? worldTickStats.totalDurationMs / worldTickStats.samples
+      : 0,
+    averageScheduleDelayMs: worldTickStats.samples > 1
+      ? worldTickStats.totalScheduleDelayMs / (worldTickStats.samples - 1)
+      : 0,
+    effectiveHz: worldTickStats.samples > 1 && elapsedMs > 0
+      ? ((worldTickStats.samples - 1) * 1000) / elapsedMs
+      : 0
+  };
+}
+
+function sendBroadcastStats(response: ServerResponse) {
+  sendJson(response, 200, {
+    ok: true,
+    ...getBroadcastMetrics()
+  });
+}
+
+function sendLoadStats(response: ServerResponse) {
+  sendJson(response, 200, {
+    ok: true,
+    tick: getWorldTickMetrics(),
+    broadcast: getBroadcastMetrics(),
+    saves: saveCoordinator.getMetrics()
   });
 }
 
@@ -1649,6 +1701,27 @@ function tickWorld() {
   tickPlayerHazards(now);
   tickItemDrops(now);
   broadcastWorldSnapshots();
+}
+
+function measuredTickWorld() {
+  const startedAt = performance.now();
+  const scheduleDelayMs = previousWorldTickStartedAt > 0
+    ? Math.max(0, startedAt - previousWorldTickStartedAt - worldTickIntervalMs)
+    : 0;
+  previousWorldTickStartedAt = startedAt;
+  if (worldTickStats.samples === 0) {
+    worldTickStats.firstTickAt = startedAt;
+  }
+
+  tickWorld();
+
+  const durationMs = performance.now() - startedAt;
+  worldTickStats.samples += 1;
+  worldTickStats.totalDurationMs += durationMs;
+  worldTickStats.maxDurationMs = Math.max(worldTickStats.maxDurationMs, durationMs);
+  worldTickStats.totalScheduleDelayMs += scheduleDelayMs;
+  worldTickStats.maxScheduleDelayMs = Math.max(worldTickStats.maxScheduleDelayMs, scheduleDelayMs);
+  worldTickStats.lastTickAt = startedAt;
 }
 
 function tickPlayerMp(now: number, dt: number) {
@@ -3137,7 +3210,7 @@ export function startPenglaiServer() {
   });
 
   setInterval(cleanupRecentAttacks, 5000);
-  setInterval(tickWorld, 1000 / 15);
+  setInterval(measuredTickWorld, worldTickIntervalMs);
   setInterval(flushDirtyPlayerGames, saveFlushIntervalMs);
 
   process.once("SIGINT", () => {

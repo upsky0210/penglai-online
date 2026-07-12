@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { SaveGameInput, SavedGame } from "./persistence.js";
 
 interface PendingPlayerSave {
@@ -26,6 +27,11 @@ export interface SaveFlushMetrics {
   failures: number;
   lastSuccessAt: number;
   lastFailureAt: number;
+  durationSamples: number;
+  totalDurationMs: number;
+  averageDurationMs: number;
+  maxDurationMs: number;
+  lastDurationMs: number;
   queued: number;
   oldestQueuedMs: number;
 }
@@ -39,7 +45,11 @@ export class SaveCoordinator {
     successes: 0,
     failures: 0,
     lastSuccessAt: 0,
-    lastFailureAt: 0
+    lastFailureAt: 0,
+    durationSamples: 0,
+    totalDurationMs: 0,
+    maxDurationMs: 0,
+    lastDurationMs: 0
   };
 
   constructor(private readonly options: SaveCoordinatorOptions) {
@@ -117,6 +127,9 @@ export class SaveCoordinator {
   getMetrics(): SaveFlushMetrics {
     return {
       ...this.stats,
+      averageDurationMs: this.stats.durationSamples > 0
+        ? this.stats.totalDurationMs / this.stats.durationSamples
+        : 0,
       queued: this.pending.size,
       oldestQueuedMs: this.getOldestPendingAge()
     };
@@ -131,6 +144,7 @@ export class SaveCoordinator {
     pending.attempts += 1;
     pending.lastAttemptAt = Date.now();
     this.stats.attempts += 1;
+    const startedAt = performance.now();
 
     try {
       const failurePrefix = this.options.simulatedFailureSlotPrefix;
@@ -149,6 +163,12 @@ export class SaveCoordinator {
       this.stats.failures += 1;
       this.stats.lastFailureAt = Date.now();
       throw error;
+    } finally {
+      const durationMs = performance.now() - startedAt;
+      this.stats.durationSamples += 1;
+      this.stats.totalDurationMs += durationMs;
+      this.stats.maxDurationMs = Math.max(this.stats.maxDurationMs, durationMs);
+      this.stats.lastDurationMs = durationMs;
     }
   }
 
