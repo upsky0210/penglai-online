@@ -1,0 +1,28 @@
+# P8-A／P8-B 圖像生成提示紀錄
+
+本輪使用內建圖像生成模式，先生成風格錨點，再以錨點保持主角、港吏、糧倉鼠與貨箱的一致性。成品先置於純色色鍵背景，使用官方去背工具產生透明 PNG，最後由 `scripts/build-p8-sprites.py` 裁切、縮放與對齊。
+
+## 共通風格提示
+
+- 原創臺灣歷史誌異 2D RPG；只取 1990 年代末至 2000 年代初華文 PC RPG 的手繪像素語言，不描摹既有角色或素材。
+- 2.5–3 頭身、深褐墨線、3–5 階礦物色、清楚像素群、節制抖色。
+- 色盤為赭紅、靛青、茶褐、黛綠、米白，異聞只使用少量玉青與淡金。
+- 無文字、UI、標誌、浮水印、現代物件、仙俠重甲、大型動漫光炮。
+
+## 生成組
+
+1. **風格錨點**：地方誌行旅調查者、安平港吏、帶稻穀與潮霧紋的糧倉鼠、麻繩榫接貨箱，同一地線的完整角色／物件 lineup。
+2. **主角動畫表**：朝右；5 列分別為待機 4、跑步 6、跳躍 2、短劍普通攻擊 4、玉青淡金墨痕技能 5 幀；純 `#00ff00` 背景。
+3. **港吏待機表**：同一成熟港吏朝右，呼吸、重心轉移及文書袋微動共 4 幀；純 `#00ff00` 背景。
+4. **糧倉鼠待機表**：同一臺灣田鼠朝右，警戒、嗅聞、肩背起伏與尾巴微動共 4 幀；純 `#ff00ff` 背景。
+5. **安平貨箱**：榫接木箱、麻繩、鐵角件、舊漆與水痕，單一三分之四視角物件；純 `#00ff00` 背景。
+6. **普通攻擊特效**：無角色與武器；閃點、米金月牙、墨屑玉青邊、消散共 4 幀；純 `#ff00ff` 背景。
+
+## 成品路徑
+
+- `client/public/assets/p8/characters/player/`
+- `client/public/assets/p8/npcs/anping_harbor_clerk_idle.png`
+- `client/public/assets/p8/monsters/granary_rat_idle.png`
+- `client/public/assets/p8/props/anping_cargo_chest.png`
+- `client/public/assets/p8/effects/basic_ink_slash.png`
+- `client/public/assets/p8/style/p8_anping_style_anchor.png`

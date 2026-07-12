@@ -85,6 +85,11 @@ export const monsterAnimationKeys: Record<MonsterKind, string> = {
 
 export const platformTextureKey = "tile_harbor_platform";
 export const mistOverlayTextureKey = "effect_mist_overlay";
+export const anpingHarborClerkTextureKey = "npc_anping_harbor_clerk";
+export const anpingHarborClerkAnimationKey = "anim_npc_anping_harbor_clerk_idle";
+export const anpingCargoChestTextureKey = "prop_anping_cargo_chest";
+export const basicInkSlashTextureKey = "effect_basic_ink_slash";
+export const basicInkSlashAnimationKey = "anim_effect_basic_ink_slash";
 
 export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
   "fog-harbor-test": [
@@ -108,6 +113,11 @@ export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
 };
 
 export const optionalImageAssets: ImageAsset[] = [
+  {
+    key: anpingCargoChestTextureKey,
+    path: "assets/p8/props/anping_cargo_chest.png",
+    enabled: externalMapArtEnabled
+  },
   {
     key: "bg_historical_fog_harbor_test",
     path: "assets/maps/historical/fog_harbor_test_backplate.png",
@@ -193,9 +203,9 @@ export const optionalImageAssets: ImageAsset[] = [
 export const optionalSpriteSheets: SpriteSheetAsset[] = [
   {
     key: "player_idle",
-    path: "assets/characters/player/player_idle.png",
-    frameWidth: 48,
-    frameHeight: 48,
+    path: "assets/p8/characters/player/player_idle.png",
+    frameWidth: 80,
+    frameHeight: 80,
     frameCount: 4,
     frameRate: 5,
     repeat: -1,
@@ -204,9 +214,9 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
   },
   {
     key: "player_run",
-    path: "assets/characters/player/player_run.png",
-    frameWidth: 48,
-    frameHeight: 48,
+    path: "assets/p8/characters/player/player_run.png",
+    frameWidth: 96,
+    frameHeight: 80,
     frameCount: 6,
     frameRate: 9,
     repeat: -1,
@@ -215,9 +225,9 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
   },
   {
     key: "player_jump",
-    path: "assets/characters/player/player_jump.png",
-    frameWidth: 48,
-    frameHeight: 48,
+    path: "assets/p8/characters/player/player_jump.png",
+    frameWidth: 80,
+    frameHeight: 80,
     frameCount: 2,
     frameRate: 6,
     repeat: -1,
@@ -226,9 +236,9 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
   },
   {
     key: "player_attack",
-    path: "assets/characters/player/player_attack.png",
-    frameWidth: 48,
-    frameHeight: 48,
+    path: "assets/p8/characters/player/player_attack.png",
+    frameWidth: 112,
+    frameHeight: 80,
     frameCount: 4,
     frameRate: 12,
     repeat: 0,
@@ -237,9 +247,9 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
   },
   {
     key: "player_skill_slash",
-    path: "assets/characters/player/player_skill_slash.png",
-    frameWidth: 64,
-    frameHeight: 48,
+    path: "assets/p8/characters/player/player_skill_slash.png",
+    frameWidth: 128,
+    frameHeight: 80,
     frameCount: 5,
     frameRate: 14,
     repeat: 0,
@@ -248,13 +258,35 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
   },
   {
     key: "monster_field_rat",
-    path: "assets/monsters/field_rat_idle.png",
-    frameWidth: 32,
-    frameHeight: 24,
+    path: "assets/p8/monsters/granary_rat_idle.png",
+    frameWidth: 64,
+    frameHeight: 48,
     frameCount: 4,
     frameRate: 6,
     repeat: -1,
     animationKey: "anim_monster_field_rat_idle",
+    enabled: externalSpritesEnabled
+  },
+  {
+    key: anpingHarborClerkTextureKey,
+    path: "assets/p8/npcs/anping_harbor_clerk_idle.png",
+    frameWidth: 80,
+    frameHeight: 80,
+    frameCount: 4,
+    frameRate: 4,
+    repeat: -1,
+    animationKey: anpingHarborClerkAnimationKey,
+    enabled: externalSpritesEnabled
+  },
+  {
+    key: basicInkSlashTextureKey,
+    path: "assets/p8/effects/basic_ink_slash.png",
+    frameWidth: 96,
+    frameHeight: 64,
+    frameCount: 4,
+    frameRate: 20,
+    repeat: 0,
+    animationKey: basicInkSlashAnimationKey,
     enabled: externalSpritesEnabled
   },
   {

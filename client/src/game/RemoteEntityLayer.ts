@@ -164,6 +164,7 @@ export class RemoteEntityLayer {
     if (["archive-drifter", "star-moth"].includes(kind)) return [50, 42];
     if (kind === "cave-crab") return [50, 38];
     if (kind === "mist-puppet") return [46, 52];
+    if (kind === "field-rat") return [58, 44];
     return kind === "mist-slime" ? [40, 32] : [36, 26];
   }
   private applyMonsterAnimation(view: MonsterView, kind: MonsterSnapshot["kind"]) {

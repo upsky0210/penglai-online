@@ -19,6 +19,7 @@ Thumbs.db
 
 .npm-cache/
 *.log
+tmp/
 
 # Runtime SQLite database + transient WAL/SHM journals (never commit; may contain student data)
 server/data/*.sqlite

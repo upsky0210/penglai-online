@@ -1370,7 +1370,7 @@ export class GameScene extends Phaser.Scene {
     this.player.setDepth(45);
     this.player.setCollideWorldBounds(true);
     this.player.body.setSize(20, 34);
-    this.player.body.setOffset(8, 8);
+    this.player.body.setOffset(30, 42);
     this.updateLocalPlayerAnimation("idle");
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, this.currentMap.width, this.currentMap.height);
@@ -1396,6 +1396,7 @@ export class GameScene extends Phaser.Scene {
       if (sprite.anims.currentAnim?.key !== animationKey) {
         sprite.play(animationKey, true);
       }
+      this.syncPlayerBodyToFrame(sprite);
       return;
     }
 
@@ -1403,6 +1404,14 @@ export class GameScene extends Phaser.Scene {
       sprite.setTexture(fallbackPlayerTextureKey);
     }
     sprite.stop();
+    this.syncPlayerBodyToFrame(sprite);
+  }
+
+  private syncPlayerBodyToFrame(sprite: Phaser.GameObjects.Sprite) {
+    const physicsSprite = sprite as Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
+    if (!physicsSprite.body?.setOffset) return;
+    physicsSprite.body.setSize(20, 34);
+    physicsSprite.body.setOffset((sprite.frame.width - 20) / 2, Math.max(0, sprite.frame.height - 38));
   }
 
   private connect() {

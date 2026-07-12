@@ -3,6 +3,7 @@ import type { CharacterClass, SkillDefinition, SkillId } from "@penglai/shared";
 import { ColorText, uiFont } from "./uiTheme";
 import type { MonsterView } from "./viewTypes";
 import { GameAudioManager } from "./audioManager";
+import { basicInkSlashAnimationKey, basicInkSlashTextureKey } from "./assetManifest";
 
 export class CombatVfx {
   constructor(private readonly scene: Phaser.Scene, private readonly audio: GameAudioManager) {}
@@ -62,6 +63,15 @@ export class CombatVfx {
   }
 
   private flashBasicAttack(originX: number, originY: number, direction: 1 | -1) {
+    if (this.scene.textures.exists(basicInkSlashTextureKey) && this.scene.anims.exists(basicInkSlashAnimationKey)) {
+      const slash = this.scene.add
+        .sprite(originX + direction * 46, originY - 4, basicInkSlashTextureKey)
+        .setFlipX(direction < 0)
+        .setDepth(54);
+      slash.play(basicInkSlashAnimationKey);
+      slash.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => slash.destroy());
+      return;
+    }
     const hitbox = this.scene.add.rectangle(originX + direction * 42, originY, 58, 34, 0xffd36d, 0.45);
     this.scene.tweens.add({ targets: hitbox, alpha: 0, duration: 140, onComplete: () => hitbox.destroy() });
   }
