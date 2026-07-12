@@ -6,7 +6,8 @@ import {
   mapBackgroundLayers,
   mistOverlayTextureKey,
   npcVisualAssets,
-  platformTextureKeys
+  platformTextureKeys,
+  scenePropTextureKeys
 } from "./assetManifest";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
 import { visualQuality } from "./visualQuality";
@@ -15,6 +16,14 @@ export interface MapRendererOptions {
   getPlayer: () => Phaser.Types.Physics.Arcade.SpriteWithDynamicBody | undefined;
   getQuests: () => Map<string, QuestSnapshot>;
   hasUsableTexture: (key: string) => boolean;
+}
+
+interface ScenePropPlacement {
+  key: string;
+  x: number;
+  y: number;
+  scale?: number;
+  flipX?: boolean;
 }
 
 export class MapRenderer {
@@ -168,6 +177,11 @@ export class MapRenderer {
       if (this.hasUsableTexture(anpingCargoChestTextureKey)) {
         this.add.image(1190, 474, anpingCargoChestTextureKey).setOrigin(0.5, 1).setDepth(24);
       }
+      this.addSceneProps([
+        { key: scenePropTextureKeys.cargoCrates, x: 760, y: 474 },
+        { key: scenePropTextureKeys.burlapSacks, x: 960, y: 474 },
+        { key: scenePropTextureKeys.ledgerManifest, x: 1400, y: 474, scale: 0.82 }
+      ]);
       return;
     }
 
@@ -177,6 +191,11 @@ export class MapRenderer {
       this.addSignpost(1260, 456, "新學測繪所");
       this.addSignpost(1510, 456, "淡水河潮尺");
       for (const interactable of this.currentMap.interactables) this.addInteractableLandmark(interactable);
+      this.addSceneProps([
+        { key: scenePropTextureKeys.cargoCrates, x: 700, y: 474, scale: 0.88 },
+        { key: scenePropTextureKeys.burlapSacks, x: 1080, y: 474, scale: 0.9 },
+        { key: scenePropTextureKeys.ledgerManifest, x: 1370, y: 474, scale: 0.82 }
+      ]);
       this.addMistVeil(620, 364, 260);
       this.addMistVeil(1120, 338, 300);
       return;
@@ -187,6 +206,11 @@ export class MapRenderer {
       this.addSignpost(930, 456, "郊商貨棧");
       this.addSignpost(1510, 456, "受潮木料區");
       this.addSignpost(2040, 456, "稻江茶市航路");
+      this.addSceneProps([
+        { key: scenePropTextureKeys.cargoCrates, x: 650, y: 474, scale: 0.92 },
+        { key: scenePropTextureKeys.burlapSacks, x: 1080, y: 474 },
+        { key: scenePropTextureKeys.timberStack, x: 1530, y: 474 }
+      ]);
       this.addMistVeil(760, 360, 260);
       this.addMistVeil(1460, 350, 310);
       return;
@@ -198,6 +222,11 @@ export class MapRenderer {
       this.addSignpost(1430, 456, "茶霧礁光");
       this.addSignpost(1960, 456, "艋舺木料街航路");
       for (const interactable of this.currentMap.interactables) this.addInteractableLandmark(interactable);
+      this.addSceneProps([
+        { key: scenePropTextureKeys.teaChestStack, x: 700, y: 474 },
+        { key: scenePropTextureKeys.bambooSieves, x: 1090, y: 474 },
+        { key: scenePropTextureKeys.teaDryingRack, x: 1530, y: 474, scale: 0.88 }
+      ]);
       this.addMistVeil(720, 336, 280);
       this.addMistVeil(1320, 330, 320);
       this.addMistVeil(1900, 348, 340);
@@ -210,6 +239,11 @@ export class MapRenderer {
       this.addSignpost(1540, 456, "木料貨單");
       this.addSignpost(2140, 456, "大嵙崁山產線");
       for (const interactable of this.currentMap.interactables) this.addInteractableLandmark(interactable);
+      this.addSceneProps([
+        { key: scenePropTextureKeys.timberStack, x: 720, y: 474 },
+        { key: scenePropTextureKeys.ledgerManifest, x: 1320, y: 474, scale: 0.84 },
+        { key: scenePropTextureKeys.cargoCrates, x: 1840, y: 474, scale: 0.86 }
+      ]);
       this.addMistVeil(780, 334, 300);
       this.addMistVeil(1400, 328, 340);
       this.addMistVeil(2100, 350, 360);
@@ -222,6 +256,11 @@ export class MapRenderer {
     this.addSignpost(1660, 456, "蒸餾記錄儀");
     this.addSignpost(2280, 456, "山產線終點");
     for (const interactable of this.currentMap.interactables) this.addInteractableLandmark(interactable);
+    this.addSceneProps([
+      { key: scenePropTextureKeys.teaDryingRack, x: 650, y: 474, scale: 0.84 },
+      { key: scenePropTextureKeys.camphorStill, x: 1280, y: 474, scale: 0.86 },
+      { key: scenePropTextureKeys.teaChestStack, x: 1820, y: 474, scale: 0.82 }
+    ]);
     this.addMistVeil(760, 330, 300);
     this.addMistVeil(1460, 318, 340);
     this.addMistVeil(2140, 346, 360);
@@ -258,6 +297,18 @@ export class MapRenderer {
       this.add.circle(x, 402, 26, ColorHex.gold, 0.16);
       this.add.circle(x, 402, 13, ColorHex.vermilion, 0.95);
       this.add.circle(x, 400, 6, ColorHex.goldBright, 0.9);
+    }
+  }
+
+  private addSceneProps(placements: ScenePropPlacement[]) {
+    for (const placement of placements) {
+      if (!this.hasUsableTexture(placement.key)) continue;
+      this.add
+        .image(placement.x, placement.y, placement.key)
+        .setOrigin(0.5, 1)
+        .setScale(placement.scale ?? 1)
+        .setFlipX(placement.flipX ?? false)
+        .setDepth(24);
     }
   }
 

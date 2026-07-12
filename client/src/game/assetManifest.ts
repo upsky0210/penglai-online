@@ -98,6 +98,17 @@ export const anpingCargoChestTextureKey = "prop_anping_cargo_chest";
 export const basicInkSlashTextureKey = "effect_basic_ink_slash";
 export const basicInkSlashAnimationKey = "anim_effect_basic_ink_slash";
 
+export const scenePropTextureKeys = {
+  cargoCrates: "prop_cargo_crates",
+  burlapSacks: "prop_burlap_sacks",
+  teaChestStack: "prop_tea_chest_stack",
+  timberStack: "prop_timber_stack",
+  bambooSieves: "prop_bamboo_sieves",
+  ledgerManifest: "prop_ledger_manifest",
+  teaDryingRack: "prop_tea_drying_rack",
+  camphorStill: "prop_camphor_still"
+} as const;
+
 export const interactableTextureKeys: Record<MapInteractableKind, string> = {
   lantern: "interactable_breakwater_lantern",
   "tide-gauge": "interactable_tide_gauge",
@@ -166,6 +177,20 @@ export const optionalImageAssets: ImageAsset[] = [
     path: "assets/p8/props/anping_cargo_chest.png",
     enabled: externalMapArtEnabled
   },
+  ...([
+    [scenePropTextureKeys.cargoCrates, "cargo_crates"],
+    [scenePropTextureKeys.burlapSacks, "burlap_sacks"],
+    [scenePropTextureKeys.teaChestStack, "tea_chest_stack"],
+    [scenePropTextureKeys.timberStack, "timber_stack"],
+    [scenePropTextureKeys.bambooSieves, "bamboo_sieves"],
+    [scenePropTextureKeys.ledgerManifest, "ledger_manifest"],
+    [scenePropTextureKeys.teaDryingRack, "tea_drying_rack"],
+    [scenePropTextureKeys.camphorStill, "camphor_still"]
+  ] as const).map(([key, filename]) => ({
+    key,
+    path: `assets/p8/props/${filename}.png`,
+    enabled: externalMapArtEnabled
+  })),
   ...Object.entries(interactableTextureKeys).map(([kind, key]) => ({
     key,
     path: `assets/p8/interactables/${({ lantern: "breakwater_lantern", "tide-gauge": "tide_gauge", seal: "tea_seal", tablet: "timber_tablet", lens: "camphor_lens" } as const)[kind as MapInteractableKind]}.png`,

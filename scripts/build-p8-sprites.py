@@ -108,6 +108,22 @@ def main():
     chest = Image.open(SOURCE / "cargo_chest_alpha.png").convert("RGBA")
     fit_subject(chest, (96, 80), (90, 72), 76).save(PUBLIC / "props" / "anping_cargo_chest.png", optimize=True)
 
+    prop_specs = {
+        "cargo_crates": ((112, 96), (104, 88), 92),
+        "burlap_sacks": ((96, 96), (88, 88), 92),
+        "tea_chest_stack": ((112, 96), (104, 88), 92),
+        "timber_stack": ((128, 80), (120, 72), 76),
+        "bamboo_sieves": ((96, 80), (88, 72), 76),
+        "ledger_manifest": ((96, 64), (88, 56), 60),
+        "tea_drying_rack": ((128, 112), (120, 104), 108),
+        "camphor_still": ((144, 120), (136, 112), 116),
+    }
+    for name, (frame_size, max_size, bottom) in prop_specs.items():
+        source = Image.open(SOURCE / "props" / f"{name}_alpha.png").convert("RGBA")
+        destination = PUBLIC / "props" / f"{name}.png"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fit_subject(source, frame_size, max_size, bottom).save(destination, optimize=True)
+
     interactable_specs = {
         "breakwater_lantern": ((96, 112), (84, 104), 108),
         "tide_gauge": ((96, 112), (84, 104), 108),
@@ -169,6 +185,7 @@ def main():
         PUBLIC / "props" / "anping_cargo_chest.png": (96, 80),
     }
     expected_sizes.update({platform_dir / f"{name}.png": (256, 64) for name in ["stone", "wood", "roof", "dock", "mountain"]})
+    expected_sizes.update({PUBLIC / "props" / f"{name}.png": frame_size for name, (frame_size, _, _) in prop_specs.items()})
     expected_sizes.update({PUBLIC / "interactables" / f"{name}.png": frame_size for name, (frame_size, _, _) in interactable_specs.items()})
     expected_sizes.update({
         PUBLIC / "effects" / f"{name}.png": (frame_size[0] * 4, frame_size[1])
