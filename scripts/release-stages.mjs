@@ -1,4 +1,5 @@
 export const RELEASE_NPM_STAGES = [
+  "check:p9-a2",
   "check:beta:v02",
   "smoke",
   "smoke:multi",

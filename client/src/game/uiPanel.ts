@@ -1,5 +1,5 @@
 import type Phaser from "phaser";
-import { ColorHex, ColorText, PanelStyle, uiFont } from "./uiTheme";
+import { ColorHex, ColorText, PanelStyle, uiFont, uiTextResolution } from "./uiTheme";
 
 export interface UiPanel {
   container: Phaser.GameObjects.Container;
@@ -57,7 +57,7 @@ export function createUiPanel(
     fontSize: "14px",
     color: ColorText.gold,
     fontStyle: "bold"
-  });
+  }).setResolution(uiTextResolution);
 
   const body = scene.add.text(14, headerHeight + 12, "", {
     fontFamily: uiFont,
@@ -65,7 +65,7 @@ export function createUiPanel(
     color: ColorText.parchment,
     lineSpacing: 5,
     wordWrap: { width: width - 28 }
-  });
+  }).setResolution(uiTextResolution);
 
   container.add([g, titleText, body]);
   return {

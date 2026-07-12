@@ -14,7 +14,7 @@ export interface MonsterView {
 }
 
 export interface ItemDropView {
-  body: Phaser.GameObjects.Rectangle;
+  body: Phaser.GameObjects.Sprite;
   shine: Phaser.GameObjects.Arc;
   label: Phaser.GameObjects.Text;
 }

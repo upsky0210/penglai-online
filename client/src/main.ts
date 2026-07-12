@@ -18,7 +18,12 @@ if (new URLSearchParams(window.location.search).has("admin")) {
     parent: root,
     width: gameWidth,
     height: gameHeight,
-    pixelArt: true,
+    render: {
+      pixelArt: false,
+      antialias: true,
+      antialiasGL: true,
+      roundPixels: true
+    },
     physics: {
       default: "arcade",
       arcade: {
@@ -28,7 +33,8 @@ if (new URLSearchParams(window.location.search).has("admin")) {
     },
     scale: {
       mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      autoRound: true
     },
     scene: GameScene
   });

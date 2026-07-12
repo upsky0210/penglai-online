@@ -60,6 +60,12 @@ export class GameAudioManager {
     this.playTone(440, 60, 0.025, "triangle", 0, 660);
   }
 
+  playLevelUpSound() {
+    this.playTone(440, 100, 0.028, "triangle", 0, 660);
+    this.playTone(660, 120, 0.026, "triangle", 90, 880);
+    this.playTone(880, 180, 0.022, "sine", 190, 1320);
+  }
+
   playBlockedSound() {
     this.playTone(150, 88, 0.022, "sawtooth", 0, 95);
   }

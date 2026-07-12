@@ -2625,6 +2625,7 @@ export type ServerMessage =
       type: "player:level-up";
       playerId: string;
       level: number;
+      player: PlayerSnapshot;
     }
   | {
       type: "player:left";

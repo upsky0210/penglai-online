@@ -1934,7 +1934,7 @@ function awardExp(playerId: string, expReward: number) {
     leveledUp = true;
   }
 
-  players.set(playerId, {
+  const updatedPlayer: PlayerSnapshot = {
     ...player,
     level,
     exp,
@@ -1942,13 +1942,15 @@ function awardExp(playerId: string, expReward: number) {
     hp: leveledUp ? player.maxHp : player.hp,
     mp: leveledUp ? player.maxMp : player.mp,
     updatedAt: Date.now()
-  });
+  };
+  players.set(playerId, updatedPlayer);
 
   if (leveledUp) {
     broadcast({
       type: "player:level-up",
       playerId,
-      level
+      level,
+      player: updatedPlayer
     });
   }
 

@@ -150,6 +150,7 @@ export interface TestDataReport {
   smokeChatLogs: number;
   smokeActionLogs: number;
   smokeAccountSaveSlots: number;
+  smokeAnnouncements: number;
 }
 
 export interface TestDataCleanupResult {
@@ -1017,7 +1018,10 @@ export function getTestDataReport(): TestDataReport {
     ),
     smokeChatLogs: getCount("SELECT COUNT(*) AS count FROM chat_logs WHERE save_slot LIKE '%smoke%' OR player_name LIKE 'Smoke%'"),
     smokeActionLogs: getCount("SELECT COUNT(*) AS count FROM admin_action_logs WHERE details LIKE '%Smoke%'"),
-    smokeAccountSaveSlots: getCount("SELECT COUNT(*) AS count FROM account_save_slots WHERE save_slot LIKE '%smoke%'")
+    smokeAccountSaveSlots: getCount("SELECT COUNT(*) AS count FROM account_save_slots WHERE save_slot LIKE '%smoke%'"),
+    smokeAnnouncements: getCount(
+      "SELECT COUNT(*) AS count FROM admin_announcements WHERE text = 'Smoke test announcement' OR text LIKE '[SMOKE:%'"
+    )
   };
 }
 
@@ -1034,7 +1038,8 @@ export function cleanupSmokeTestData(dryRun = true): TestDataCleanupResult {
       smokeFeedback: 0,
       smokeChatLogs: 0,
       smokeActionLogs: 0,
-      smokeAccountSaveSlots: 0
+      smokeAccountSaveSlots: 0,
+      smokeAnnouncements: 0
     };
     const toDeletedCount = (changes: number | bigint) => Number(changes);
     deleted.smokeFeedback = toDeletedCount(
@@ -1046,6 +1051,9 @@ export function cleanupSmokeTestData(dryRun = true): TestDataCleanupResult {
       db.prepare("DELETE FROM chat_logs WHERE save_slot LIKE '%smoke%' OR player_name LIKE 'Smoke%'").run().changes
     );
     deleted.smokeActionLogs = toDeletedCount(db.prepare("DELETE FROM admin_action_logs WHERE details LIKE '%Smoke%'").run().changes);
+    deleted.smokeAnnouncements = toDeletedCount(
+      db.prepare("DELETE FROM admin_announcements WHERE text = 'Smoke test announcement' OR text LIKE '[SMOKE:%'").run().changes
+    );
     deleted.smokeAccountSaveSlots = toDeletedCount(db.prepare("DELETE FROM account_save_slots WHERE save_slot LIKE '%smoke%'").run().changes);
     db.prepare("DELETE FROM inventory_items WHERE save_slot LIKE '%smoke%'").run();
     db.prepare("DELETE FROM equipment_items WHERE save_slot LIKE '%smoke%'").run();

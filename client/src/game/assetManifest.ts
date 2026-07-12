@@ -109,6 +109,13 @@ export const scenePropTextureKeys = {
   camphorStill: "prop_camphor_still"
 } as const;
 
+export const itemDropTextureKeys = {
+  potion: "item_drop_potion", lunchbox: "item_drop_lunchbox", ratTail: "item_drop_rat_tail",
+  mistGel: "item_drop_mist_gel", shell: "item_drop_shell", monsterCloth: "item_drop_monster_cloth",
+  dampWood: "item_drop_damp_wood", reefSpark: "item_drop_reef_spark", questKey: "item_drop_quest_key",
+  magicCore: "item_drop_magic_core", questSeal: "item_drop_quest_seal", equipment: "item_drop_equipment"
+} as const;
+
 export const interactableTextureKeys: Record<MapInteractableKind, string> = {
   lantern: "interactable_breakwater_lantern",
   "tide-gauge": "interactable_tide_gauge",
@@ -172,6 +179,11 @@ export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
 };
 
 export const optionalImageAssets: ImageAsset[] = [
+  ...Object.entries(itemDropTextureKeys).map(([name, key]) => ({
+    key,
+    path: `assets/p9/items/${name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}.png`,
+    enabled: externalMapArtEnabled
+  })),
   {
     key: anpingCargoChestTextureKey,
     path: "assets/p8/props/anping_cargo_chest.png",

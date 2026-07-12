@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { CLASS_SKILL_IDS, type CharacterClass, type ItemDropSnapshot, type MonsterSnapshot, type PlayerAnimation, type PlayerSnapshot } from "@penglai/shared";
-import { monsterAnimationKeys, monsterTextureKeys } from "./assetManifest";
+import { CLASS_SKILL_IDS, ITEM_DEFINITIONS, type CharacterClass, type ItemDropSnapshot, type ItemId, type MonsterSnapshot, type PlayerAnimation, type PlayerSnapshot } from "@penglai/shared";
+import { itemDropTextureKeys, monsterAnimationKeys, monsterTextureKeys } from "./assetManifest";
 import { GameAudioManager } from "./audioManager";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
 import type { ItemDropView, MonsterView } from "./viewTypes";
@@ -13,6 +13,34 @@ const fallbackTextures: Record<MonsterSnapshot["kind"], string> = {
   "archive-drifter": "monster_archive_drifter_fallback", "ink-sprite": "monster_ink_sprite_fallback", "archive-guardian": "monster_archive_guardian_fallback",
   "star-moth": "monster_star_moth_fallback", "lens-sentinel": "monster_lens_sentinel_fallback", "astral-keeper": "monster_astral_keeper_fallback"
 };
+
+const itemDropTextures: Partial<Record<ItemId, string>> = {
+  "small-hp-potion": itemDropTextureKeys.potion, "medium-hp-potion": itemDropTextureKeys.potion,
+  "harbor-lunchbox": itemDropTextureKeys.lunchbox, "rat-tail": itemDropTextureKeys.ratTail,
+  "mist-gel": itemDropTextureKeys.mistGel, "watcher-shell": itemDropTextureKeys.shell,
+  "warehouse-cloth": itemDropTextureKeys.monsterCloth, "damp-wood": itemDropTextureKeys.dampWood,
+  "crab-shell": itemDropTextureKeys.shell, "reef-spark": itemDropTextureKeys.reefSpark,
+  "coral-key": itemDropTextureKeys.questKey, "salted-page": itemDropTextureKeys.monsterCloth,
+  "ink-core": itemDropTextureKeys.magicCore, "archive-seal": itemDropTextureKeys.questSeal,
+  "star-dust": itemDropTextureKeys.reefSpark, "lens-core": itemDropTextureKeys.magicCore,
+  "astral-seal": itemDropTextureKeys.questSeal
+};
+
+export function getItemDropTextureKey(itemId: ItemId) {
+  const dedicated = itemDropTextures[itemId];
+  if (dedicated) return dedicated;
+  const item = ITEM_DEFINITIONS[itemId];
+  if (item.kind === "consumable") return itemDropTextureKeys.potion;
+  if (item.kind === "equipment") return itemDropTextureKeys.equipment;
+  return itemDropTextureKeys.magicCore;
+}
+
+function getItemDropTint(itemId: ItemId) {
+  const slot = ITEM_DEFINITIONS[itemId].equipmentSlot;
+  if (slot === "weapon") return 0xffd77d;
+  if (slot === "armor") return 0x9cc2d4;
+  return 0xffffff;
+}
 
 export interface RemoteEntityLayerOptions {
   getPlayerId: () => string;
@@ -140,11 +168,11 @@ export class RemoteEntityLayer {
     for (const drop of drops) {
       const view = this.getOrCreateItemDrop(drop);
       const visible = this.isNearCamera(drop.x, drop.y, 80);
-      view.body.setPosition(drop.x, drop.y - 10).setVisible(visible);
+      view.body.setPosition(drop.x, drop.y - 14).setVisible(visible);
       view.shine.setPosition(drop.x, drop.y - 18).setVisible(visible && visualQuality.showSecondaryGlows);
       const showLabel = visible && visibleLabelCount < visualQuality.maxWorldLabels;
       if (showLabel) visibleLabelCount += 1;
-      view.label.setPosition(drop.x - 44, drop.y - 44).setVisible(showLabel);
+      view.label.setPosition(drop.x - 48, drop.y - 52).setVisible(showLabel);
     }
     const liveIds = new Set(drops.map((drop) => drop.id));
     for (const [id, view] of this.itemDrops) {
@@ -156,9 +184,9 @@ export class RemoteEntityLayer {
   private getOrCreateItemDrop(drop: ItemDropSnapshot) {
     const existing = this.itemDrops.get(drop.id);
     if (existing) return existing;
-    const body = this.scene.add.rectangle(drop.x, drop.y - 10, 24, 18, ColorHex.vermilion).setStrokeStyle(1, ColorHex.gold, 0.6).setDepth(30);
-    const shine = this.scene.add.circle(drop.x, drop.y - 18, 4, ColorHex.goldBright, 0.9).setDepth(31);
-    const label = this.scene.add.text(drop.x - 44, drop.y - 44, `${drop.name} x${drop.quantity}`, { fontFamily: uiFont, fontSize: "11px", color: ColorText.gold, backgroundColor: "#10271fcc", padding: { x: 5, y: 3 } }).setDepth(31);
+    const body = this.scene.add.sprite(drop.x, drop.y - 14, getItemDropTextureKey(drop.itemId)).setDisplaySize(34, 34).setOrigin(0.5, 1).setTint(getItemDropTint(drop.itemId)).setDepth(30);
+    const shine = this.scene.add.circle(drop.x, drop.y - 18, 5, ColorHex.goldBright, 0.3).setDepth(29);
+    const label = this.scene.add.text(drop.x - 48, drop.y - 52, `${drop.name} ×${drop.quantity}`, { fontFamily: uiFont, fontSize: "11px", color: ColorText.gold, backgroundColor: "#10271fe6", padding: { x: 5, y: 3 }, fixedWidth: 96, align: "center" }).setDepth(31);
     this.scene.tweens.add({ targets: [body, shine], y: "-=3", duration: 520, yoyo: true, repeat: -1 });
     const view = { body, shine, label };
     this.itemDrops.set(drop.id, view);

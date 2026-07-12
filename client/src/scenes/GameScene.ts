@@ -168,6 +168,7 @@ export class GameScene extends Phaser.Scene {
   private characterPanelVisible = false;
   private guidePanelVisible = true;
   private announcementPanelVisible = false;
+  private announcementToast?: Phaser.GameObjects.Text;
   private shopPanelVisible = false;
   private savePanelVisible = false;
   private settingsPanelVisible = false;
@@ -237,6 +238,7 @@ export class GameScene extends Phaser.Scene {
     this.loadStoredAuthSession();
     this.loadCharacterDraft();
     this.audio.loadSettings();
+    this.applyPixelArtTextureFilters();
     this.createOptionalSpriteAnimations();
 
     this.cursors = this.input.keyboard?.createCursorKeys();
@@ -1294,6 +1296,14 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private applyPixelArtTextureFilters() {
+    for (const asset of [...optionalImageAssets, ...optionalSpriteSheets]) {
+      if (asset.enabled && this.hasUsableTexture(asset.key)) {
+        this.textures.get(asset.key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      }
+    }
+  }
+
   private hasUsableTexture(key: string) {
     return this.textures.exists(key) && !this.failedAssetKeys.has(key);
   }
@@ -1332,6 +1342,17 @@ export class GameScene extends Phaser.Scene {
     this.guidePanel = this.addUiPanel(gameWidth - 292, 168, 274, 184, "地圖 / 流程");
     this.guidePanel.body.setFontSize(11).setLineSpacing(3);
     this.announcementPanel = this.addUiPanel(gameWidth / 2 - 210, 86, 420, 150, "公告");
+    this.announcementPanel.title.setText("公告（U 關閉）");
+    this.announcementPanel.body.setFixedSize(392, 104).setMaxLines(4);
+    this.announcementToast = this.add.text(gameWidth - 18, 164, "", {
+      fontFamily: uiFont,
+      fontSize: "13px",
+      color: ColorText.parchment,
+      backgroundColor: "#10271fee",
+      padding: { x: 12, y: 8 },
+      fixedWidth: 310,
+      wordWrap: { width: 286 }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(210).setVisible(false);
     this.shopPanel = this.addUiPanel(gameWidth / 2 - 190, gameHeight - 390, 380, 206, "商店");
     this.savePanel = this.addUiPanel(18, 350, 306, 180, "存檔");
     this.settingsPanel = this.addUiPanel(gameWidth - 310, 372, 292, 112, "設定");
@@ -1565,6 +1586,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (message.type === "player:level-up" && message.playerId === this.playerId) {
+        this.updateHud(message.player);
         this.showLevelUp(message.level);
         return;
       }
@@ -2550,6 +2572,21 @@ export class GameScene extends Phaser.Scene {
       this.announcements = [notice, ...this.announcements].slice(0, 5);
     }
     this.updateAnnouncementPanel();
+    this.showAnnouncementToast(notice);
+  }
+
+  private showAnnouncementToast(notice: AnnouncementNotice) {
+    if (!this.announcementToast) return;
+    const text = this.fitPanelLine(`[${this.getAnnouncementCategoryLabel(notice.category)}] ${notice.text}`, 32);
+    this.tweens.killTweensOf(this.announcementToast);
+    this.announcementToast.setText(`${text}\n按 U 查看公告`).setAlpha(1).setVisible(true);
+    this.tweens.add({
+      targets: this.announcementToast,
+      alpha: 0,
+      delay: 2600,
+      duration: 300,
+      onComplete: () => this.announcementToast?.setVisible(false)
+    });
   }
 
   private updateAnnouncementPanel() {
@@ -3247,6 +3284,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showLevelUp(level: number) {
+    if (!this.player) return;
+    this.audio.playLevelUpSound();
+    const aura = this.add.circle(this.player.x, this.player.y - 22, 18, ColorHex.goldBright, 0.12)
+      .setStrokeStyle(3, ColorHex.goldBright, 0.9).setDepth(46);
+    this.tweens.add({
+      targets: aura,
+      scale: visualQuality.mode === "low" ? 2.2 : 3.4,
+      alpha: 0,
+      duration: 850,
+      ease: "Cubic.easeOut",
+      onComplete: () => aura.destroy()
+    });
+    const moteCount = visualQuality.mode === "low" ? 3 : 9;
+    for (let index = 0; index < moteCount; index += 1) {
+      const angle = (Math.PI * 2 * index) / moteCount;
+      const mote = this.add.circle(
+        this.player.x + Math.cos(angle) * 22,
+        this.player.y - 8,
+        index % 2 ? 2 : 3,
+        index % 2 ? ColorHex.mistBlue : ColorHex.goldBright,
+        0.9
+      ).setDepth(47);
+      this.tweens.add({
+        targets: mote,
+        x: mote.x + Math.cos(angle) * 14,
+        y: mote.y - 54 - (index % 3) * 8,
+        alpha: 0,
+        duration: 700 + index * 28,
+        onComplete: () => mote.destroy()
+      });
+    }
     const text = this.add
       .text(gameWidth / 2, 106, `升到 ${level} 級`, {
         fontFamily: uiFont,

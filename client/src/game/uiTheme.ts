@@ -54,7 +54,10 @@ export const ColorText = {
 } as const;
 
 /** 介面字體堆疊：優先採用系統內建的正體中文黑體，確保畫布文字清晰。 */
-export const uiFont = '"Microsoft JhengHei", "PingFang TC", "Heiti TC", "Noto Sans TC", sans-serif';
+export const uiFont = '"Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif';
+
+/** UI 字體用於高 DPI Canvas；限制 2x 避免高解析裝置過度佔用顯示記憶體。 */
+export const uiTextResolution = Math.min(globalThis.devicePixelRatio || 1, 2);
 
 /** 面板外觀參數。 */
 export const PanelStyle = {

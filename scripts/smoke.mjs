@@ -3,6 +3,7 @@ import { WebSocket } from "ws";
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:8787";
 const wsUrl = process.env.SMOKE_WS_URL ?? "ws://localhost:8787";
 const adminToken = process.env.SMOKE_ADMIN_TOKEN ?? "";
+const smokeAnnouncementPrefix = `[SMOKE:${Date.now()}-${process.pid}]`;
 
 async function assertFetch(path, expectedStatus, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, options);
@@ -141,8 +142,22 @@ if (adminToken) {
   await assertFetch(`/admin/broadcast?token=${encodeURIComponent(adminToken)}`, 200, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: "Smoke test announcement", category: "system", ttlMinutes: 60 })
+    body: JSON.stringify({ text: `${smokeAnnouncementPrefix} announcement`, category: "system", ttlMinutes: 1 })
   });
+  const cleanupResponse = await assertFetch(`/admin/test-data/cleanup?token=${encodeURIComponent(adminToken)}`, 200, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dryRun: false, confirmText: "DELETE_SMOKE_TEST_DATA" })
+  });
+  const cleanup = JSON.parse(cleanupResponse);
+  if (!cleanup.deleted || cleanup.deleted.smokeAnnouncements < 1) {
+    throw new Error(`smoke announcement cleanup did not remove the test notice: ${cleanupResponse}`);
+  }
+  const cleanReportResponse = await assertFetch(`/admin/test-data?token=${encodeURIComponent(adminToken)}`, 200);
+  const cleanReport = JSON.parse(cleanReportResponse).report;
+  if (cleanReport.smokeAnnouncements !== 0) {
+    throw new Error(`general database still contains smoke announcements: ${cleanReportResponse}`);
+  }
   await assertFetch(`/admin/mute?token=${encodeURIComponent(adminToken)}`, 404, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
