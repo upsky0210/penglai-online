@@ -2,10 +2,9 @@ import Phaser from "phaser";
 import { DEFAULT_GAME_MAP, type GameMapData, type MapInteractableData, type QuestSnapshot } from "@penglai/shared";
 import {
   anpingCargoChestTextureKey,
-  anpingHarborClerkAnimationKey,
-  anpingHarborClerkTextureKey,
   mapBackgroundLayers,
   mistOverlayTextureKey,
+  npcVisualAssets,
   platformTextureKey
 } from "./assetManifest";
 import { ColorHex, ColorText, uiFont } from "./uiTheme";
@@ -651,12 +650,10 @@ export class MapRenderer {
     for (const npc of this.currentMap.npcs) {
       // Keep NPC body + nameplate above map background/foreground art so labels are never covered.
       this.add.ellipse(npc.x, npc.y - 2, 30, 10, ColorHex.shadow, 0.4).setDepth(28);
-      const useAnpingClerk = this.currentMapId === "fog-harbor-test"
-        && npc.id === "fog-harbor-guard"
-        && this.hasUsableTexture(anpingHarborClerkTextureKey);
-      if (useAnpingClerk) {
-        const clerk = this.add.sprite(npc.x, npc.y, anpingHarborClerkTextureKey).setOrigin(0.5, 1).setDepth(30);
-        if (this.scene.anims.exists(anpingHarborClerkAnimationKey)) clerk.play(anpingHarborClerkAnimationKey);
+      const visual = npcVisualAssets[npc.id];
+      if (visual && this.hasUsableTexture(visual.textureKey)) {
+        const sprite = this.add.sprite(npc.x, npc.y, visual.textureKey).setOrigin(0.5, 1).setDepth(30);
+        if (this.scene.anims.exists(visual.animationKey)) sprite.play(visual.animationKey);
       } else {
         this.add.rectangle(npc.x, npc.y - 24, 24, 44, ColorHex.teal).setDepth(30);
         this.add.rectangle(npc.x, npc.y - 24, 24, 44, 0x000000, 0).setStrokeStyle(1, ColorHex.gold, 0.4).setDepth(30);

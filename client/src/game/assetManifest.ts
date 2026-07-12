@@ -91,6 +91,32 @@ export const anpingCargoChestTextureKey = "prop_anping_cargo_chest";
 export const basicInkSlashTextureKey = "effect_basic_ink_slash";
 export const basicInkSlashAnimationKey = "anim_effect_basic_ink_slash";
 
+export interface NpcVisualAsset {
+  textureKey: string;
+  animationKey: string;
+}
+
+export const npcVisualAssets: Record<string, NpcVisualAsset> = {
+  "fog-harbor-guard": { textureKey: anpingHarborClerkTextureKey, animationKey: anpingHarborClerkAnimationKey },
+  "herbalist-lin": { textureKey: "npc_herbalist_lin", animationKey: "anim_npc_herbalist_lin_idle" },
+  "merchant-chen": { textureKey: "npc_merchant_chen", animationKey: "anim_npc_merchant_chen_idle" },
+  "lighthouse-apprentice": { textureKey: "npc_lighthouse_apprentice", animationKey: "anim_npc_lighthouse_apprentice_idle" },
+  "breakwater-scout": { textureKey: "npc_breakwater_scout", animationKey: "anim_npc_breakwater_scout_idle" },
+  "tide-researcher-yu": { textureKey: "npc_tide_researcher_yu", animationKey: "anim_npc_tide_researcher_yu_idle" },
+  "warehouse-keeper": { textureKey: "npc_warehouse_keeper", animationKey: "anim_npc_warehouse_keeper_idle" },
+  "cavern-scholar": { textureKey: "npc_cavern_scholar", animationKey: "anim_npc_cavern_scholar_idle" },
+  "archive-curator": { textureKey: "npc_archive_curator", animationKey: "anim_npc_archive_curator_idle" },
+  "observatory-keeper": { textureKey: "npc_observatory_keeper", animationKey: "anim_npc_observatory_keeper_idle" }
+};
+
+const p8MonsterFrames: Partial<Record<MonsterKind, [number, number]>> = {
+  "mist-slime": [64, 48], "tide-watcher": [96, 80], "warehouse-rat": [64, 48],
+  "mist-puppet": [80, 80], "warehouse-sentry": [128, 96], "cave-crab": [80, 64],
+  "reef-wisp": [64, 64], "coral-warden": [128, 96], "archive-drifter": [80, 64],
+  "ink-sprite": [64, 64], "archive-guardian": [128, 96], "star-moth": [96, 80],
+  "lens-sentinel": [80, 80], "astral-keeper": [128, 96]
+};
+
 export const mapBackgroundLayers: Record<MapId, MapBackgroundLayer[]> = {
   "fog-harbor-test": [
     { key: "bg_historical_fog_harbor_test", y: 270, height: 540, scrollFactor: 1, depth: -60, fitTextureHeight: true }
@@ -278,6 +304,19 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
     animationKey: anpingHarborClerkAnimationKey,
     enabled: externalSpritesEnabled
   },
+  ...Object.entries(npcVisualAssets)
+    .filter(([npcId]) => npcId !== "fog-harbor-guard")
+    .map(([npcId, visual]) => ({
+      key: visual.textureKey,
+      path: `assets/p8/npcs/${npcId.replaceAll("-", "_")}_idle.png`,
+      frameWidth: 80,
+      frameHeight: 80,
+      frameCount: 4,
+      frameRate: 4,
+      repeat: -1,
+      animationKey: visual.animationKey,
+      enabled: externalSpritesEnabled
+    })),
   {
     key: basicInkSlashTextureKey,
     path: "assets/p8/effects/basic_ink_slash.png",
@@ -289,26 +328,15 @@ export const optionalSpriteSheets: SpriteSheetAsset[] = [
     animationKey: basicInkSlashAnimationKey,
     enabled: externalSpritesEnabled
   },
-  {
-    key: "monster_mist_slime",
-    path: "assets/monsters/mist_slime_idle.png",
-    frameWidth: 40,
-    frameHeight: 32,
+  ...Object.entries(p8MonsterFrames).map(([kind, [frameWidth, frameHeight]]) => ({
+    key: monsterTextureKeys[kind as MonsterKind],
+    path: `assets/p8/monsters/${kind.replaceAll("-", "_")}_idle.png`,
+    frameWidth,
+    frameHeight,
     frameCount: 4,
     frameRate: 5,
     repeat: -1,
-    animationKey: "anim_monster_mist_slime_idle",
+    animationKey: monsterAnimationKeys[kind as MonsterKind],
     enabled: externalSpritesEnabled
-  },
-  {
-    key: "monster_tide_watcher",
-    path: "assets/monsters/tide_watcher_idle.png",
-    frameWidth: 96,
-    frameHeight: 96,
-    frameCount: 6,
-    frameRate: 5,
-    repeat: -1,
-    animationKey: "anim_monster_tide_watcher_idle",
-    enabled: externalSpritesEnabled
-  }
+  }))
 ];

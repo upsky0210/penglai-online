@@ -99,6 +99,33 @@ def main():
     chest = Image.open(SOURCE / "cargo_chest_alpha.png").convert("RGBA")
     fit_subject(chest, (96, 80), (90, 72), 76).save(PUBLIC / "props" / "anping_cargo_chest.png", optimize=True)
 
+    npc_names = [
+        "herbalist_lin", "merchant_chen", "lighthouse_apprentice", "breakwater_scout",
+        "tide_researcher_yu", "warehouse_keeper", "cavern_scholar", "archive_curator",
+        "observatory_keeper",
+    ]
+    for name in npc_names:
+        save_strip(f"npcs/{name}_alpha.png", PUBLIC / "npcs" / f"{name}_idle.png", 4, (80, 80), (68, 72), 76)
+
+    monster_specs = {
+        "mist_slime": ((64, 48), (58, 42), 44),
+        "tide_watcher": ((96, 80), (88, 72), 76),
+        "warehouse_rat": ((64, 48), (60, 40), 44),
+        "mist_puppet": ((80, 80), (70, 72), 76),
+        "warehouse_sentry": ((128, 96), (116, 88), 92),
+        "cave_crab": ((80, 64), (74, 56), 60),
+        "reef_wisp": ((64, 64), (58, 56), 60),
+        "coral_warden": ((128, 96), (116, 88), 92),
+        "archive_drifter": ((80, 64), (72, 56), 60),
+        "ink_sprite": ((64, 64), (56, 56), 60),
+        "archive_guardian": ((128, 96), (116, 88), 92),
+        "star_moth": ((96, 80), (88, 72), 76),
+        "lens_sentinel": ((80, 80), (72, 72), 76),
+        "astral_keeper": ((128, 96), (116, 88), 92),
+    }
+    for name, (frame_size, max_size, bottom) in monster_specs.items():
+        save_strip(f"monsters/{name}_alpha.png", PUBLIC / "monsters" / f"{name}_idle.png", 4, frame_size, max_size, bottom)
+
     expected_sizes = {
         player_dir / "player_idle.png": (320, 80),
         player_dir / "player_run.png": (576, 80),
@@ -110,6 +137,11 @@ def main():
         PUBLIC / "effects" / "basic_ink_slash.png": (384, 64),
         PUBLIC / "props" / "anping_cargo_chest.png": (96, 80),
     }
+    expected_sizes.update({PUBLIC / "npcs" / f"{name}_idle.png": (320, 80) for name in npc_names})
+    expected_sizes.update({
+        PUBLIC / "monsters" / f"{name}_idle.png": (frame_size[0] * 4, frame_size[1])
+        for name, (frame_size, _, _) in monster_specs.items()
+    })
     for path, expected_size in expected_sizes.items():
         image = Image.open(path).convert("RGBA")
         assert image.size == expected_size, f"{path.name}: expected {expected_size}, got {image.size}"

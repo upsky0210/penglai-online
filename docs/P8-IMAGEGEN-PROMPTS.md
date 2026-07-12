@@ -26,3 +26,6 @@
 - `client/public/assets/p8/props/anping_cargo_chest.png`
 - `client/public/assets/p8/effects/basic_ink_slash.png`
 - `client/public/assets/p8/style/p8_anping_style_anchor.png`
+# P8-C / P8-D 補充
+
+NPC 與怪物採「單一角色、四格橫向待機、固定朝右、固定腳底線、純洋紅去背色」逐一生成。NPC 的識別由職業道具與地方服裝完成；怪物的識別由各地產業材料完成（港口繩索、鹿港木箱、大稻埕茶箱、艋舺木料、三峽大溪茶葉與樟腦蒸餾器）。所有提示均要求原創設計，風格參考只限定色盤、像素密度及輪廓可讀性。
