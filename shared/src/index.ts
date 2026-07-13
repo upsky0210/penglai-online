@@ -503,6 +503,8 @@ export interface MapInteractableData {
   x: number;
   y: number;
   interactionRadius: number;
+  /** 互動完成時顯示的短篇史實；不參與任務判定或存檔。 */
+  historyText?: string;
 }
 
 export interface MonsterSpawn {
@@ -565,6 +567,9 @@ export interface QuestDefinition {
   rewardGold: number;
   chapterId?: "chapter-1" | "warehouse" | "cavern" | "archive" | "observatory";
   prerequisiteQuestIds?: string[];
+  /** NPC 接取與完成時的 1–3 句歷史情境短句。 */
+  briefing?: string;
+  completionText?: string;
 }
 
 export interface QuestSnapshot extends QuestDefinition {
@@ -574,48 +579,72 @@ export interface QuestSnapshot extends QuestDefinition {
 }
 
 export interface HistoricalChapterGuide {
+  location: string;
   era: string;
   focus: string;
   fact: string;
   fictionNotice: string;
+  knowledgePoints: string[];
+  review: {
+    industry: string;
+    connection: string;
+  };
 }
 
 export const historicalChapterGuides: Record<MapId, HistoricalChapterGuide> = {
   "fog-harbor-test": {
+    location: "臺灣府城／安平",
     era: "1860–1870 年代",
     focus: "安平港與府城商業網，如何在開港後連接世界。",
     fact: "史實啟發：開港通商後，安平港與府城成為南臺灣的重要門戶。",
-    fictionNotice: "潮霧、怪物與潮眼守衛皆為遊戲異聞。"
+    fictionNotice: "潮霧、怪物與潮眼守衛皆為遊戲異聞。",
+    knowledgePoints: ["1865 年前後安平正式開港並設海關。", "洋行、倉棧與府城市街形成貿易分工。", "糖、樟腦等貨物經港口進出口。", "開港使地方商人、勞動者與外商往來增加。"],
+    review: { industry: "港口貿易、倉儲與府城商業。", connection: "透過安平海關、洋行與航運連接海外市場。" }
   },
   "mist-breakwater": {
+    location: "滬尾／淡水河口",
     era: "1872–1884",
     focus: "滬尾河港裡的醫療、新學與跨文化交流。",
     fact: "史實啟發：淡水是北臺灣的河港與新式教育、醫療交流重地。",
-    fictionNotice: "河霧與航標異變皆為遊戲異聞。"
+    fictionNotice: "河霧與航標異變皆為遊戲異聞。",
+    knowledgePoints: ["1872 年馬偕抵達淡水，展開傳教與社會接觸。", "1880 年偕醫館帶來西式醫療。", "1882 年理學堂大書院培育教育與醫療人才。", "潮位、測繪與航標協助河港船隻往來。"],
+    review: { industry: "河港運輸，也帶動醫療與教育服務。", connection: "淡水河口讓地方與海外人員、知識及貨物交流。" }
   },
   "old-harbor-warehouse": {
+    location: "鹿港",
     era: "1880–1905",
     focus: "鹿港郊商、貨棧與舊港商業網的運作。",
     fact: "史實啟發：鹿港曾以港市、郊商與貨物流通聞名。",
-    fictionNotice: "貨棧巡弋者與霧化木偶皆為遊戲異聞。"
+    fictionNotice: "貨棧巡弋者與霧化木偶皆為遊戲異聞。",
+    knowledgePoints: ["鹿港郊商是同業商號組成的商業團體。", "郊商協調交易、信用、糾紛與公益。", "貨棧把不同產地貨物集中後再轉運。", "港道淤積與交通路線改變，使鹿港由盛轉衰。"],
+    review: { industry: "郊商貿易、貨棧與轉運。", connection: "商號網絡把鹿港連到福建沿岸與臺灣各地。" }
   },
   "coral-tide-cavern": {
+    location: "臺北大稻埕",
     era: "1895–1935",
     focus: "大稻埕茶行如何整理、裝箱並把茶葉送往海外。",
     fact: "史實啟發：大稻埕是北臺灣茶葉貿易與河港運輸的重要節點。",
-    fictionNotice: "茶霧礁光與茶埠守望者皆為遊戲異聞。"
+    fictionNotice: "茶霧礁光與茶埠守望者皆為遊戲異聞。",
+    knowledgePoints: ["北臺灣丘陵茶菁送到大稻埕加工。", "揀茶、烘焙、分級與裝箱決定品質。", "遠洋茶葉多用密封茶箱保存風味。", "茶箱經淡水河與淡水港送往海外。", "茶業也提供揀茶女、製箱工與碼頭工工作。"],
+    review: { industry: "茶葉精製、包裝與外銷。", connection: "丘陵茶園經大稻埕加工，再沿淡水河出海。" }
   },
   "sunken-archive": {
+    location: "臺北艋舺",
     era: "1910–1945",
     focus: "艋舺河港、木料交易與木作技藝留下的城市記憶。",
     fact: "史實啟發：艋舺一帶連結河港市街、木料與傳統工藝。",
-    fictionNotice: "木紋異潮與木作庫守衛皆為遊戲異聞。"
+    fictionNotice: "木紋異潮與木作庫守衛皆為遊戲異聞。",
+    knowledgePoints: ["艋舺由淡水河岸商業向內陸市街發展。", "河運帶來木料與日用品，再由工匠加工。", "量木、製材與榫卯需要不同工序合作。", "交通與河道條件改變，城市商業中心也會移動。"],
+    review: { industry: "木料交易、貨運與木作。", connection: "淡水河運把山林材料送進艋舺，再供應城市建築與工藝。" }
   },
   "starlit-observatory": {
+    location: "三峽／大溪山區",
     era: "1920–1955",
     focus: "大嵙崁山區的茶葉、樟腦與河運產業線。",
     fact: "史實啟發：三峽、大溪周邊曾有茶、樟腦與山產運輸網絡。",
-    fictionNotice: "星圖、蒸餾儀異變與守望者皆為遊戲異聞。"
+    fictionNotice: "星圖、蒸餾儀異變與守望者皆為遊戲異聞。",
+    knowledgePoints: ["山坡與森林支持茶葉、樟腦等山產。", "樟腦需砍取樟木並以蒸餾方式製作。", "1903 年後輕便鐵道把大溪貨物接到桃園車站。", "日治時期產業受官方制度與會社管理。", "1945 年後產業復工，也面對資源消耗與交通轉型。"],
+    review: { industry: "茶葉、樟腦與山產加工。", connection: "河運與輕便鐵道把山區貨物接上臺北及外銷路線。" }
   }
 };
 
@@ -1088,6 +1117,47 @@ Object.assign(LENS_CORE_QUEST, { title: "收集蒸餾記錄核心" });
 Object.assign(OBSERVATORY_LENS_QUEST, { title: "校準三座樟腦蒸餾儀" });
 Object.assign(ASTRAL_KEEPER_QUEST, { title: "擊退山產線守望者" });
 Object.assign(ASTRAL_SEAL_QUEST, { title: "回收茶樟星圖印記" });
+
+const historicalQuestNarratives: Record<string, Pick<QuestDefinition, "briefing" | "completionText">> = {
+  "field-rat-cleanup": { briefing: "1865 年前後，安平開港後貨物流量增加。先整理府城糧倉，別讓鼠患損傷存貨。", completionText: "糧倉恢復運作。港口貿易也需要搬運、保管等日常勞動。" },
+  "rat-tail-salve": { briefing: "府城市街供應港區居民與工人。請替藥舖備妥這份藥引。", completionText: "藥舖補給完成。港口與府城不是兩處孤立地點，而是互相支援的生活圈。" },
+  "mist-gel-lantern": { briefing: "安平設海關後，洋行與倉棧沿港出現。收集凝膠只是異聞任務；航標與查驗才是史實背景。", completionText: "航標重新亮起。船、海關、洋行與府城商人共同連起海外市場。" },
+  "breakwater-scout": { briefing: "1872 年的滬尾是河港，也是跨文化接觸的入口。先巡查河岸，記住河口連著內河與外海。", completionText: "河岸暫時安全。霧怪是虛構，淡水河港的人員與貨物流動是真實歷史。" },
+  "tide-watcher-core": { briefing: "河口守衛是遊戲異聞。真實的滬尾需面對潮汐、航路與港防問題。", completionText: "異聞已平息。河口位置讓淡水同時具有交通、貿易與防務價值。" },
+  "breakwater-lantern-repair": { briefing: "航標協助船隻辨認河口路線。修復三盞燈，體會河港交通需要共同維護。", completionText: "三盞航標燈完成。港口繁榮不只靠船，也靠測量與維護。" },
+  "watcher-shell-report": { briefing: "1880 年偕醫館在淡水提供西式醫療。甲片是虛構樣本，任務借此比較觀察、記錄與診治。", completionText: "樣本已記錄。新式醫療在地方交流中建立，也伴隨疑慮與磨合。" },
+  "tide-gauge-survey": { briefing: "1882 年理學堂大書院培育教育與醫療人才。去抄錄潮尺，把觀察化成可比較的數字。", completionText: "潮位資料完成。測量與新學讓河港知識能被教學、傳遞與使用。" },
+  "warehouse-rat-cleanup": { briefing: "鹿港郊商由同業商號組成，重視貨物與信用。先清理貨棧，保住共同交易的基礎。", completionText: "貨棧恢復整潔。郊商不只買賣，也維護同業規約與地方公益。" },
+  "damp-wood-sample": { briefing: "貨棧集中布匹、木材與藥材，再依商路轉運。驗看受潮木料，避免損害商號信用。", completionText: "木料已分級。倉儲管理把產地、商號與船運接成一條商業網。" },
+  "mist-puppet-clear": { briefing: "木偶是遊戲異聞。真實鹿港靠商號、船戶與搬運工協力維持貨物流通。", completionText: "異聞已清除。港市的繁榮來自許多角色合作，不只是一位大商人。" },
+  "warehouse-sentry-core": { briefing: "19 世紀後期港道淤積，新的陸運路線也改變商業重心。擊退守衛後，記下鹿港如何轉型。", completionText: "商棧通路恢復。鹿港的網絡仍延續，但港口興衰改變了城市位置。" },
+  "cavern-crab-clear": { briefing: "大稻埕收集北臺灣丘陵茶菁，再由茶行精製。先整理碼頭，讓原料能送進街區。", completionText: "碼頭恢復通行。茶產業把山區種植與城市加工連在一起。" },
+  "reef-spark-sample": { briefing: "茶霧碎晶是遊戲異聞。真實茶行要揀茶、烘焙與分級，品質影響外銷價格。", completionText: "樣本已分級。茶葉不是採下就出口，還要經過多道加工。" },
+  "reef-seal-activate": { briefing: "遠洋茶葉多用茶箱密封，以減少受潮變味。核對三冊帳，確認加工、包裝與出貨。", completionText: "三冊帳相符。茶箱連起揀茶女、製箱工、茶商與碼頭工。" },
+  "coral-warden-core": { briefing: "守望者是遊戲異聞。真實大稻埕茶市由河運、茶行與外商交易共同形成。", completionText: "茶埠恢復秩序。大稻埕透過淡水河與淡水港連向海外。" },
+  "coral-key-report": { briefing: "帶回潮鑰，完成地方誌。記住產業主線：丘陵茶園、城市精製、河港外銷。", completionText: "稻江地方誌完成。這裡靠茶葉加工發展，並由淡水河接上世界市場。" },
+  "archive-drifter-clear": { briefing: "20 世紀前期的艋舺由河岸商業向市街發展。先整理木料區，恢復工匠作業。", completionText: "木料區恢復。河港輸入材料，城市工匠再把材料變成建築與器物。" },
+  "ink-core-sample": { briefing: "墨潮核心是遊戲異聞。真實木作需量木、製材、乾燥與加工，不能省略工序。", completionText: "樣本已收齊。城市產業依靠碼頭工、貨運者與工匠分工。" },
+  "archive-tablet-align": { briefing: "比對三張貨單，追查木料從河運到工坊的去向。每張單代表一段搬運與加工。", completionText: "貨單吻合。淡水河把山林材料送入艋舺，再供應市街建設。" },
+  "archive-guardian-core": { briefing: "木作庫守衛是遊戲異聞。真實城市會隨河道、鐵路與道路改變商業中心。", completionText: "木作庫開放。交通轉型會帶來新機會，也使舊河港地位改變。" },
+  "archive-seal-report": { briefing: "帶回木料印記，完成艋舺地方誌。記住木料交易、貨運與工匠缺一不可。", completionText: "艋舺地方誌完成。這裡靠河港商業與木作發展，並連結山林材料和城市需求。" },
+  "star-moth-clear": { briefing: "1920 年代山產線運送茶葉與樟腦。先驅散星砂蛾；蛾群是異聞，產業線有史實依據。", completionText: "產線恢復。三峽、大溪的山坡與森林支持茶、樟腦及其他山產。" },
+  "lens-core-sample": { briefing: "樟腦需砍取樟木、切片，再以蒸餾取得。收集核心時，也留意資源開採的代價。", completionText: "蒸餾記錄已整理。產業帶來收入，也消耗森林並受制度管理。" },
+  "observatory-lens-align": { briefing: "1903 年後，大溪輕便鐵道把貨物送到桃園車站，再接縱貫鐵路。校準三座記錄儀。", completionText: "三站資料接通。交通由河運走向輕便鐵道與鐵路，市場範圍因此擴大。" },
+  "astral-keeper-core": { briefing: "守望者是遊戲異聞。日治時期的山產生產也受到官方制度與會社控制。", completionText: "異聞已平息。產業建設與制度控制必須一起理解，不能只看產量增加。" },
+  "astral-seal-report": { briefing: "時間推進到 1945 年後。回收印記，記下復工、交通轉型與山林資源問題。", completionText: "山產地方誌完成。茶與樟腦連結山區、河港、鐵路和外部市場，也留下環境代價。" }
+};
+
+for (const quest of Object.values({
+  FIELD_RAT_QUEST, RAT_TAIL_QUEST, MIST_GEL_QUEST, BREAKWATER_SCOUT_QUEST, TIDE_WATCHER_QUEST,
+  BREAKWATER_LANTERN_QUEST, WATCHER_SHELL_QUEST, TIDE_GAUGE_QUEST, WAREHOUSE_RAT_QUEST, DAMP_WOOD_QUEST,
+  MIST_PUPPET_QUEST, WAREHOUSE_SENTRY_QUEST, CAVERN_CRAB_QUEST, REEF_SPARK_QUEST, REEF_SEAL_QUEST,
+  CORAL_WARDEN_QUEST, CORAL_KEY_QUEST, ARCHIVE_DRIFTER_QUEST, INK_CORE_QUEST, ARCHIVE_TABLET_QUEST,
+  ARCHIVE_GUARDIAN_QUEST, ARCHIVE_SEAL_QUEST, STAR_MOTH_QUEST, LENS_CORE_QUEST, OBSERVATORY_LENS_QUEST,
+  ASTRAL_KEEPER_QUEST, ASTRAL_SEAL_QUEST
+})) {
+  Object.assign(quest, historicalQuestNarratives[quest.id]);
+}
 
 export const QUEST_DEFINITIONS: QuestDefinition[] = [
   FIELD_RAT_QUEST,
@@ -2356,6 +2426,28 @@ relabelMapEntries(STARLIT_OBSERVATORY_MAP, {
   },
   monsters: { "star-moth": "星砂蛾", "lens-sentinel": "蒸餾儀巡弋者", "astral-keeper": "山產線守望者" }
 });
+
+const interactableHistoryTexts: Record<string, string> = {
+  "lantern-west": "航標協助船隻辨認淡水河口。河港交通需要持續維護。",
+  "lantern-mid": "1872 年後，滬尾也是傳教、醫療與地方交流的入口。",
+  "lantern-east": "1882 年理學堂大書院成立。新知識在教學與地方接觸中傳播。",
+  "tide-gauge-main": "潮尺把水位化成可比較的記錄。測量能協助判讀河港航行條件。",
+  "reef-seal-west": "茶菁送到大稻埕後，先經揀茶與分級。這一步影響成茶品質。",
+  "reef-seal-mid": "茶葉需再次烘焙、整理。加工讓各批茶更適合保存與交易。",
+  "reef-seal-east": "遠洋茶葉多用茶箱包裝，再沿淡水河運往淡水港出口。",
+  "archive-tablet-west": "木料先由河運送到艋舺，再依尺寸與用途分類。",
+  "archive-tablet-mid": "製材與榫卯需要工匠經驗。木作不是單一步驟。",
+  "archive-tablet-east": "貨單顯示材料流向工坊與市街。河港供應城市建設需求。",
+  "observatory-lens-west": "樟木切片後以蒸氣蒸餾樟腦。產量背後也有山林消耗。",
+  "observatory-lens-mid": "日治時期山產受官方制度與會社管理，勞動者也受其約束。",
+  "observatory-lens-east": "1903 年後輕便鐵道接上桃園車站，山產運輸逐漸由河運轉向陸運。"
+};
+
+for (const map of [MIST_BREAKWATER_MAP, CORAL_TIDE_CAVERN_MAP, SUNKEN_ARCHIVE_MAP, STARLIT_OBSERVATORY_MAP]) {
+  for (const interactable of map.interactables) {
+    interactable.historyText = interactableHistoryTexts[interactable.id];
+  }
+}
 
 export const GAME_MAPS: Record<MapId, GameMapData> = {
   "fog-harbor-test": FOG_HARBOR_TEST_MAP,

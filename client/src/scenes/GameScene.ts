@@ -2554,10 +2554,11 @@ export class GameScene extends Phaser.Scene {
     const historicalGuide = historicalChapterGuides[this.currentMapId];
     this.guidePanel.body.setText(
       [
-        this.fitPanelLine(`${this.currentMap.name} | ${zoneName}`, 22),
+        this.fitPanelLine(`${historicalGuide.location} | ${zoneName}`, 22),
         `年代：${historicalGuide.era}`,
-        historicalGuide.focus,
-        "史實啟發；潮霧等異聞為遊戲虛構。",
+        this.fitPanelLine(`產業：${historicalGuide.review.industry}`, 24),
+        this.fitPanelLine(`對外：${historicalGuide.review.connection}`, 25),
+        "史實啟發；潮霧異聞為虛構。",
         this.fitPanelLine(`進度：${chapterStep}`, 24),
         this.fitPanelLine(`${this.getChapterChecklist()} | ${routeHint.replace("下一步：", "")}`, 28)
       ].join("\n")
@@ -3089,8 +3090,11 @@ export class GameScene extends Phaser.Scene {
         color: ColorText.parchment,
         backgroundColor: "#10271fe6",
         padding: { x: 12, y: 7 },
-        wordWrap: { width: 360 }
+        fixedWidth: 392,
+        lineSpacing: 3,
+        wordWrap: { width: 368 }
       })
+      .setMaxLines(4)
       .setOrigin(1, 1)
       .setScrollFactor(0)
       .setDepth(260)

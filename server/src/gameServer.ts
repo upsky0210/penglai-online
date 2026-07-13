@@ -2506,15 +2506,16 @@ function awardQuestRewards(playerId: string, quest: QuestSnapshot) {
 }
 
 function getAcceptedText(quest: QuestSnapshot) {
+  const briefing = quest.briefing ? `${quest.briefing}\n` : "";
   if (quest.objective.type === "collect") {
-    return `任務已接受：收集 ${quest.targetCount} 個${ITEM_DEFINITIONS[quest.objective.itemId].name}。`;
+    return `${briefing}目標：收集 ${quest.targetCount} 個${ITEM_DEFINITIONS[quest.objective.itemId].name}。`;
   }
 
   if (quest.objective.type === "interact") {
-    return `任務已接受：完成 ${quest.targetCount} 個地圖互動點。`;
+    return `${briefing}目標：完成 ${quest.targetCount} 個地圖互動點。`;
   }
 
-  return `任務已接受：擊退 ${quest.targetCount} 隻${MONSTER_KIND_NAMES[quest.objective.targetKind]}。`;
+  return `${briefing}目標：擊退 ${quest.targetCount} 隻${MONSTER_KIND_NAMES[quest.objective.targetKind]}。`;
 }
 
 function getActiveText(quest: QuestSnapshot, remaining: number) {
@@ -2567,10 +2568,10 @@ function handleMapInteract(playerId: string, interactableId: string) {
   sendSingleQuest(playerId, nextQuest);
 
   if (nextQuest.status === "ready") {
-    sendQuestNotice(playerId, `互動完成：${interactable.name}。任務可回報。`);
+    sendQuestNotice(playerId, `${interactable.historyText ? `${interactable.historyText}\n` : ""}互動完成：${interactable.name}。任務可回報。`);
   } else {
     const remaining = Math.max(0, nextQuest.targetCount - nextQuest.progress);
-    sendQuestNotice(playerId, `互動完成：${interactable.name}。還需要 ${remaining} 個目標。`);
+    sendQuestNotice(playerId, `${interactable.historyText ? `${interactable.historyText}\n` : ""}互動完成：${interactable.name}。還需要 ${remaining} 個目標。`);
   }
   savePlayerGame(playerId);
 }
@@ -2662,7 +2663,7 @@ function handleNpcInteract(playerId: string, npcId: string) {
     };
     quests.set(quest.id, completedQuest);
     sendSingleQuest(playerId, completedQuest);
-    sendQuestNotice(playerId, "任務完成：已領取獎勵。", quest.rewardExp, quest.rewardGold);
+    sendQuestNotice(playerId, `${quest.completionText ? `${quest.completionText}\n` : ""}任務完成：已領取獎勵。`, quest.rewardExp, quest.rewardGold);
     syncUnlockedAvailableQuests(playerId, quests);
     savePlayerGame(playerId);
     return;
