@@ -31,6 +31,7 @@
     "check:p8-g": "node scripts/p8-g-density-check.mjs",
     "check:p9-a2": "node scripts/p9-a2-regression-check.mjs",
     "check:p9-b": "node scripts/p9-b-content-check.mjs",
+    "check:p9-c": "node scripts/p9-c-guidance-check.mjs",
     "check:beta:v02": "node scripts/beta-v02-check.mjs && npm run audit:ui-text && npm run check:p8-g && npm run typecheck && npm --workspace client run build",
     "check:beta": "npm run typecheck && npm --workspace client run build && npm run smoke && npm run smoke:multi && npm run smoke:save-roundtrip && npm run smoke:message-validation && npm run smoke:save-failure-retry && npm run smoke:broadcast-budget",
     "check:release": "node scripts/release-check.mjs",

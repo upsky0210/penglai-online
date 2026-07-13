@@ -144,6 +144,33 @@ export function getQuestTargetX(quest: QuestSnapshot, currentMap: GameMapData) {
   return targetKind ? getMonsterTargetX(targetKind, currentMap) : undefined;
 }
 
+/** 找出通往目標地圖的下一個傳送點；只讀地圖拓樸，不改任務或傳送權限。 */
+export function getNextPortalTowardMap(currentMapId: MapId, targetMapId: MapId) {
+  if (currentMapId === targetMapId) return undefined;
+  const queue: Array<{ mapId: MapId; firstPortalId?: string }> = [{ mapId: currentMapId }];
+  const visited = new Set<MapId>([currentMapId]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const portal of GAME_MAPS[current.mapId].portals) {
+      if (visited.has(portal.targetMapId)) continue;
+      const firstPortalId = current.firstPortalId ?? portal.id;
+      if (portal.targetMapId === targetMapId) {
+        return GAME_MAPS[currentMapId].portals.find((candidate) => candidate.id === firstPortalId);
+      }
+      visited.add(portal.targetMapId);
+      queue.push({ mapId: portal.targetMapId, firstPortalId });
+    }
+  }
+  return undefined;
+}
+
+export function getPortalRequirementText(targetMapId: MapId, quests: Map<string, QuestSnapshot>) {
+  const targetNpcIds = new Set(GAME_MAPS[targetMapId].npcs.map((npc) => npc.id));
+  const firstQuest = [...quests.values()].find((quest) => targetNpcIds.has(quest.npcId));
+  const missingId = firstQuest?.prerequisiteQuestIds?.find((questId) => quests.get(questId)?.status !== "completed");
+  return missingId ? `當地委託需先完成「${quests.get(missingId)?.title ?? "前置任務"}」` : "可進入";
+}
+
 export function getItemSourceMonsterKind(itemId: ItemId): MonsterKind | undefined {
   return itemSourceMonsterKinds[itemId];
 }

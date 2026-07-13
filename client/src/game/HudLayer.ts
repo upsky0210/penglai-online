@@ -22,6 +22,7 @@ export class HudLayer {
   private readonly expText: Phaser.GameObjects.Text;
   private readonly goldText: Phaser.GameObjects.Text;
   private readonly skillText: Phaser.GameObjects.Text;
+  private readonly controlHintText: Phaser.GameObjects.Text;
   private readonly zoneText: Phaser.GameObjects.Text;
   private readonly questTargetText: Phaser.GameObjects.Text;
   private readonly bossHpBack: Phaser.GameObjects.Rectangle;
@@ -69,7 +70,7 @@ export class HudLayer {
       color: ColorText.mistBlue
     }).setScrollFactor(0);
 
-    scene.add.text(324, 18, "A/D 移動  W 跳躍  K 攻擊  J 技能  E 對話/互動  自動拾取\nI 背包  Q 任務  C 角色  P 存檔/帳號  Z 回安全區(連按兩下)", {
+    this.controlHintText = scene.add.text(324, 18, "新手導引：A/D 移動", {
       fontFamily: uiFont,
       fontSize: "12px",
       color: ColorText.riceWhite,
@@ -148,6 +149,13 @@ export class HudLayer {
 
   setStatus(text: string) {
     this.statusText.setText(text);
+  }
+
+  setControlHint(text: string, tutorialComplete = false) {
+    this.controlHintText
+      .setText(text)
+      .setColor(tutorialComplete ? ColorText.sand : ColorText.riceWhite)
+      .setBackgroundColor(tutorialComplete ? "#10271fb8" : "#10271fe6");
   }
 
   updatePlayer(player: PlayerSnapshot) {

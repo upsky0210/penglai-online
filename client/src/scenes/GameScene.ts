@@ -50,6 +50,8 @@ import {
   chapterQuestIds,
   getInteractableDoneLabel,
   getInteractablePendingLabel,
+  getNextPortalTowardMap,
+  getPortalRequirementText,
   getQuestTargetMapId,
   getQuestTargetX,
   isQuestUnlocked
@@ -140,6 +142,16 @@ const emptyEquipment: EquipmentSnapshot = {
   armor: null
 };
 const fallbackPlayerTextureKey = "player";
+const tutorialSteps = [
+  { id: "move", text: "A/D 移動，走向附近 NPC" },
+  { id: "jump", text: "W 跳躍，越過平台" },
+  { id: "interact", text: "靠近 NPC，按 E 對話／接任務" },
+  { id: "attack", text: "靠近糧倉鼠，按 K 普通攻擊" },
+  { id: "skill", text: "按 J 使用職業技能" },
+  { id: "pickup", text: "擊退怪物後靠近掉落物，等待自動拾取" },
+  { id: "report", text: "目標完成後回到 NPC，按 E 回報" }
+] as const;
+type TutorialStepId = typeof tutorialSteps[number]["id"];
 export class GameScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys?: Record<KeyName, Phaser.Input.Keyboard.Key>;
@@ -181,6 +193,7 @@ export class GameScene extends Phaser.Scene {
   private currentZoneId = "";
   private currentMap: GameMapData = DEFAULT_GAME_MAP;
   private currentMapId: MapId = DEFAULT_GAME_MAP.id;
+  private completedTutorialSteps = new Set<TutorialStepId>();
 
   private failedAssetKeys = new Set<string>();
   private stageClearShown = false;
@@ -860,11 +873,19 @@ export class GameScene extends Phaser.Scene {
     const returnSafe = Phaser.Input.Keyboard.JustDown(this.keys.z);
     const logoutAuth = Phaser.Input.Keyboard.JustDown(this.keys.g);
     const toggleAnnouncements = Phaser.Input.Keyboard.JustDown(this.keys.u);
+    const requestHint = Phaser.Input.Keyboard.JustDown(this.keys.h);
     const usePotion = Phaser.Input.Keyboard.JustDown(this.keys.one);
     const equipWeapon = Phaser.Input.Keyboard.JustDown(this.keys.two);
     const equipArmor = Phaser.Input.Keyboard.JustDown(this.keys.three);
     const accountSlotIndex = usePotion ? 0 : equipWeapon ? 1 : equipArmor ? 2 : undefined;
     let skillFired = false;
+
+    if (left || right) this.completeTutorialStep("move");
+
+    if (requestHint) {
+      this.showStuckHint();
+      return;
+    }
 
     if (toggleInventory) {
       this.inventoryPanelVisible = !this.inventoryPanelVisible;
@@ -983,6 +1004,7 @@ export class GameScene extends Phaser.Scene {
 
     if (jump && this.player.body.blocked.down) {
       this.player.setVelocityY(jumpSpeed);
+      this.completeTutorialStep("jump");
     }
 
     if (attack && this.time.now >= this.attackReadyAt) {
@@ -991,6 +1013,7 @@ export class GameScene extends Phaser.Scene {
       this.audio.playAttackSound(false);
       this.flashHitbox(false);
       this.sendAttack(false);
+      this.completeTutorialStep("attack");
     }
 
     if (skill) {
@@ -999,6 +1022,7 @@ export class GameScene extends Phaser.Scene {
         this.audio.playAttackSound(true, this.getPrimarySkill().id);
         this.flashHitbox(true);
         this.sendAttack(true);
+        this.completeTutorialStep("skill");
       } else {
         this.showSkillBlocked();
       }
@@ -1006,8 +1030,10 @@ export class GameScene extends Phaser.Scene {
 
     if (interact && this.nearbyNpcId) {
       this.sendNpcInteract(this.nearbyNpcId);
+      this.completeTutorialStep("interact");
     } else if (interact && this.nearbyInteractableId) {
       this.sendMapInteract(this.nearbyInteractableId);
+      this.completeTutorialStep("interact");
     } else if (interact && this.nearbyPortalId) {
       this.sendPortalEnter(this.nearbyPortalId);
     }
@@ -1334,6 +1360,8 @@ export class GameScene extends Phaser.Scene {
     this.currentSaveSlot = this.getSaveSlot();
     this.previousSaveSlot = this.getPreviousSaveSlot();
     this.hud = new HudLayer(this, this.characterName, this.getPrimarySkill(), this.getSelectedClassConfig().maxMp);
+    this.loadTutorialProgress();
+    this.updateTutorialHud();
 
     this.inventoryPanel = this.addUiPanel(18, 194, 250, 154, "背包");
     this.questPanel = this.addUiPanel(gameWidth - 292, 18, 274, 136, "任務");
@@ -1506,6 +1534,9 @@ export class GameScene extends Phaser.Scene {
 
       if (message.type === "item:notice" && message.playerId === this.playerId) {
         this.showToast(message.text);
+        if (message.text.startsWith("拾取 ")) {
+          this.completeTutorialStep("pickup");
+        }
         if (message.healed && message.healed > 0) {
           this.showHeal(message.healed);
         }
@@ -1514,6 +1545,9 @@ export class GameScene extends Phaser.Scene {
 
       if (message.type === "quest:update" && message.playerId === this.playerId) {
         this.quests.set(message.quest.id, message.quest);
+        if (message.quest.status === "completed") {
+          this.completeTutorialStep("report");
+        }
         this.updateQuestTracker();
         this.updateGuidePanel();
         this.updateQuestTargetIndicator();
@@ -2344,7 +2378,8 @@ export class GameScene extends Phaser.Scene {
 
     if (nearbyPortal) {
       this.nearbyPortalId = nearbyPortal.id;
-      this.hud.setPrompt(`E 傳送：${nearbyPortal.name}`);
+      const requirement = getPortalRequirementText(nearbyPortal.targetMapId, this.quests);
+      this.hud.setPrompt(`E 傳送：${GAME_MAPS[nearbyPortal.targetMapId].name}｜${requirement}`);
       return;
     }
 
@@ -2493,21 +2528,86 @@ export class GameScene extends Phaser.Scene {
     return { id: "fog-harbor-outskirts", name: "霧港郊外" };
   }
 
+  private getTutorialStorageKey() {
+    return `penglai-tutorial-${this.currentSaveSlot || this.getSaveSlot()}`;
+  }
+
+  private loadTutorialProgress() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.getTutorialStorageKey()) ?? "[]") as string[];
+      const validIds = new Set(tutorialSteps.map((step) => step.id));
+      this.completedTutorialSteps = new Set(saved.filter((id): id is TutorialStepId => validIds.has(id as TutorialStepId)));
+    } catch {
+      this.completedTutorialSteps.clear();
+    }
+  }
+
+  private completeTutorialStep(stepId: TutorialStepId) {
+    const current = tutorialSteps.find((step) => !this.completedTutorialSteps.has(step.id));
+    if (!current || current.id !== stepId) return;
+    this.completedTutorialSteps.add(stepId);
+    try {
+      localStorage.setItem(this.getTutorialStorageKey(), JSON.stringify([...this.completedTutorialSteps]));
+    } catch {
+      // Tutorial progress is a local convenience; gameplay remains server-authoritative.
+    }
+    this.showCompactNotice(`導引完成：${current.text}`, ColorText.jade);
+    this.updateTutorialHud();
+  }
+
+  private updateTutorialHud() {
+    if (!this.hud) return;
+    const currentIndex = tutorialSteps.findIndex((step) => !this.completedTutorialSteps.has(step.id));
+    if (currentIndex < 0) {
+      this.hud.setControlHint("H 卡關提示 | Q 任務 | Z 返回安全區（連按兩次）", true);
+      return;
+    }
+    const step = tutorialSteps[currentIndex];
+    this.hud.setControlHint(`新手 ${currentIndex + 1}/${tutorialSteps.length}：${step.text} | H 提示`);
+  }
+
+  private showStuckHint() {
+    const quest = this.getGuidedQuest();
+    if (!quest) {
+      this.showToast("提示：目前主線已完成。可探索地圖，或按 Q 查看全部任務。");
+      return;
+    }
+    const targetMapId = getQuestTargetMapId(quest);
+    if (targetMapId && targetMapId !== this.currentMapId) {
+      const portal = getNextPortalTowardMap(this.currentMapId, targetMapId);
+      this.showToast(portal
+        ? `提示：目標在 ${GAME_MAPS[targetMapId].name}。${this.formatDistanceHint(portal.x, `先走 ${portal.name}`)}`
+        : `提示：目標在 ${GAME_MAPS[targetMapId].name}。按 Z 兩次返回安全區後再找路。`);
+      return;
+    }
+    if (quest.status === "available") {
+      const x = getQuestTargetX(quest, this.currentMap);
+      this.showToast(`提示：找 ${this.getNpcName(quest.npcId)} 按 E 接任務${x === undefined ? "" : this.formatDistanceHint(x)}。`);
+      return;
+    }
+    if (quest.status === "ready") {
+      const x = getQuestTargetX(quest, this.currentMap);
+      this.showToast(`提示：目標已完成，回 ${this.getNpcName(quest.npcId)} 按 E 回報${x === undefined ? "" : this.formatDistanceHint(x)}。`);
+      return;
+    }
+    this.showToast(`提示：${this.formatQuestProgress(quest)}。跟著上方方向與距離前進；H 只提示，不會代做。`);
+  }
+
   private updateQuestTracker() {
     if (!this.questPanel) {
       return;
     }
 
-    const allQuestLines = [...this.quests.values()]
-      .sort((a, b) => this.getQuestStatusPriority(a) - this.getQuestStatusPriority(b))
-      .filter((quest) => quest.status !== "available" || isQuestUnlocked(quest, this.quests))
-      .map((quest) => `${this.formatQuestLine(quest)}${this.getQuestDirectionHint(quest)}`);
-    const questLines = allQuestLines.slice(0, 4);
-    const hiddenQuestCount = allQuestLines.length - questLines.length;
-    if (hiddenQuestCount > 0) {
-      questLines.push(`... 還有 ${hiddenQuestCount} 個任務，按 Q 開關`);
+    const quest = this.getGuidedQuest();
+    if (!quest) {
+      this.questPanel.body.setText("目前目標：主線已完成\n按 Q 查看任務；按 H 取得提示");
+    } else {
+      this.questPanel.body.setText([
+        this.fitPanelLine(`目前目標：${quest.title}`, 24),
+        this.fitPanelLine(`${this.formatQuestLine(quest)}${this.getQuestDirectionHint(quest)}`, 30),
+        `進度：${quest.progress}/${quest.targetCount} | H 卡關提示`
+      ].join("\n"));
     }
-    this.questPanel.body.setText(questLines.join("\n") || "找港口守衛接任務");
     this.updateQuestLogPanel();
   }
 
@@ -2701,7 +2801,7 @@ export class GameScene extends Phaser.Scene {
     }
     const targetMapId = getQuestTargetMapId(quest);
     if (targetMapId && targetMapId !== this.currentMapId) {
-      const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
+      const portal = getNextPortalTowardMap(this.currentMapId, targetMapId);
       if (portal) {
         this.hud.setQuestTarget(this.formatTargetIndicator(portal.x, `前往 ${GAME_MAPS[targetMapId].name}`));
         return;
@@ -2754,7 +2854,7 @@ export class GameScene extends Phaser.Scene {
       return "";
     }
 
-    return " | H 回安全區";
+    return " | Z 回安全區";
   }
 
   private isInSafeZone(x: number, y: number) {
@@ -2800,37 +2900,42 @@ export class GameScene extends Phaser.Scene {
     const bossArea =
       this.currentMapId === "mist-breakwater"
         ? {
+            questId: "tide-watcher-core",
             entryX: 1360,
             repeatX: 1450,
-            dialogue: "前方是潮眼守衛平台。先確認生命與法力，必要時按 H 回安全區。",
+            dialogue: "前方是潮眼守衛平台。先確認生命與法力，必要時按 Z 兩次回安全區。",
             toast: "前方為潮眼守衛區，建議補滿生命後再挑戰。"
           }
         : this.currentMapId === "old-harbor-warehouse"
           ? {
+              questId: "warehouse-sentry-core",
               entryX: 1520,
               repeatX: 1640,
-              dialogue: "前方是倉庫巡弋者活動區。先確認補給與裝備，必要時按 H 回入口。",
+              dialogue: "前方是倉庫巡弋者活動區。先確認補給與裝備，必要時按 Z 兩次回入口。",
               toast: "前方為倉庫巡弋者區，建議裝備舊港短刀或補丁布衣後再挑戰。"
             }
           : this.currentMapId === "coral-tide-cavern"
             ? {
+                questId: "coral-warden-core",
                 entryX: 1840,
                 repeatX: 1940,
-                dialogue: "前方是珊瑚守望者核心。先確認補給、裝備與封印進度，必要時按 H 回入口。",
+                dialogue: "前方是珊瑚守望者核心。先確認補給、裝備與封印進度，必要時按 Z 兩次回入口。",
                 toast: "前方為珊瑚守望者區，建議完成潮封印後再挑戰。"
               }
             : this.currentMapId === "sunken-archive"
               ? {
+                  questId: "archive-guardian-core",
                   entryX: 2040,
                   repeatX: 2140,
-                  dialogue: "前方是書庫守衛核心。先確認補給、裝備與書庫碑進度，必要時按 H 回入口。",
+                  dialogue: "前方是書庫守衛核心。先確認補給、裝備與書庫碑進度，必要時按 Z 兩次回入口。",
                   toast: "前方為書庫守衛區，建議校準書庫碑後再挑戰。"
                 }
               : this.currentMapId === "starlit-observatory"
                 ? {
+                    questId: "astral-keeper-core",
                     entryX: 2200,
                     repeatX: 2300,
-                    dialogue: "前方是星穹守望者核心。先確認補給、星鏡校準與裝備，必要時按 H 回入口。",
+                    dialogue: "前方是星穹守望者核心。先確認補給、星鏡校準與裝備，必要時按 Z 兩次回入口。",
                     toast: "前方為星穹守望者區，建議校準三座觀測鏡後再挑戰。"
                   }
                 : undefined;
@@ -2838,9 +2943,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const missingConditions = this.getMissingQuestPrerequisites(bossArea.questId);
+    const conditionText = missingConditions.length > 0 ? `尚缺：${missingConditions.join("、")}` : "前置條件已完成";
+
     if (this.player.x >= bossArea.entryX && !this.bossEntryHintShown) {
       this.bossEntryHintShown = true;
-      this.showDialogue(bossArea.dialogue);
+      this.showDialogue(`${bossArea.dialogue} ${conditionText}。`);
     }
 
     if (this.player.x < bossArea.repeatX || this.time.now < this.bossWarningReadyAt) {
@@ -2848,7 +2956,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.bossWarningReadyAt = this.time.now + 8500;
-    this.showToast(bossArea.toast);
+    this.showToast(`${bossArea.toast} ${conditionText}。`);
+  }
+
+  private getMissingQuestPrerequisites(questId: string) {
+    const quest = this.quests.get(questId);
+    return (quest?.prerequisiteQuestIds ?? [])
+      .filter((id) => this.quests.get(id)?.status !== "completed")
+      .map((id) => this.quests.get(id)?.title ?? "前置任務");
   }
 
   private updateBossStatusPanel() {
@@ -3020,12 +3135,12 @@ export class GameScene extends Phaser.Scene {
 
     const targetMapId = getQuestTargetMapId(quest);
     if (targetMapId && targetMapId !== this.currentMapId) {
-      const portal = this.currentMap.portals.find((candidate) => candidate.targetMapId === targetMapId);
+      const portal = getNextPortalTowardMap(this.currentMapId, targetMapId);
       if (!portal) {
         return "（目標在其他區域）";
       }
 
-      return this.formatDistanceHint(portal.x, `傳送門：${GAME_MAPS[targetMapId].name}`);
+      return this.formatDistanceHint(portal.x, `下一站：${portal.name}`);
     }
 
     const targetX = getQuestTargetX(quest, this.currentMap);
