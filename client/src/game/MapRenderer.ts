@@ -465,7 +465,7 @@ export class MapRenderer {
       fixedWidth: 96,
       align: "center",
       padding: { x: 4, y: 2 }
-    });
+    }).setDepth(46);
     this.interactableStatusTexts.set(interactable.id, status);
   }
 
@@ -500,9 +500,13 @@ export class MapRenderer {
   }
 
   private addSignpost(x: number, y: number, text: string) {
-    this.add.rectangle(x, y, 10, 62, ColorHex.woodDark);
-    this.add.rectangle(x + 52, y - 34, 116, 34, ColorHex.woodPlank);
-    this.add.rectangle(x + 52, y - 34, 108, 26, ColorHex.inkGreenDeep).setStrokeStyle(1, ColorHex.gold, 0.5);
+    // Signboards are navigational UI in world space. Keep the board above
+    // platforms/props and the label above actors so terrain can never mask text.
+    this.add.rectangle(x, y, 10, 62, ColorHex.woodDark).setDepth(25);
+    this.add.rectangle(x + 52, y - 34, 116, 34, ColorHex.woodPlank).setDepth(25);
+    this.add.rectangle(x + 52, y - 34, 108, 26, ColorHex.inkGreenDeep)
+      .setStrokeStyle(1, ColorHex.gold, 0.5)
+      .setDepth(26);
     this.add.text(x + 2, y - 44, text, {
       fontFamily: uiFont,
       fontSize: "12px",
@@ -510,7 +514,7 @@ export class MapRenderer {
       fixedWidth: 104,
       align: "center",
       wordWrap: { width: 104 }
-    });
+    }).setDepth(46);
   }
 
   private addBreakwaterLantern(x: number, y: number, label: string) {

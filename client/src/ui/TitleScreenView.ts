@@ -31,15 +31,15 @@ export class TitleScreenView {
   ) {
     const overlay = scene.add.container(0, 0).setScrollFactor(0).setDepth(300);
     const shade = scene.add.rectangle(0, 0, gameWidth, gameHeight, ColorHex.inkGreenShade, 0.82).setOrigin(0);
-    const woodFrame = scene.add.rectangle(gameWidth / 2, gameHeight / 2 + 3, 624, 374, ColorHex.woodDark, 0.96);
-    const frame = scene.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, ColorHex.inkGreenDeep, 0.97);
-    const border = scene.add.rectangle(gameWidth / 2, gameHeight / 2, 610, 360, 0x000000, 0);
-    const header = scene.add.rectangle(gameWidth / 2, gameHeight / 2 - 150, 610, 60, ColorHex.deepTeal, 0.99);
-    const accent = scene.add.rectangle(gameWidth / 2, gameHeight / 2 - 119, 610, 3, ColorHex.gold, 0.92);
+    const woodFrame = scene.add.rectangle(gameWidth / 2, gameHeight / 2 + 3, 644, 464, ColorHex.woodDark, 0.96);
+    const frame = scene.add.rectangle(gameWidth / 2, gameHeight / 2, 630, 450, ColorHex.inkGreenDeep, 0.97);
+    const border = scene.add.rectangle(gameWidth / 2, gameHeight / 2, 630, 450, 0x000000, 0);
+    const header = scene.add.rectangle(gameWidth / 2, gameHeight / 2 - 180, 630, 60, ColorHex.deepTeal, 0.99);
+    const accent = scene.add.rectangle(gameWidth / 2, gameHeight / 2 - 149, 630, 3, ColorHex.gold, 0.92);
     const seal = scene.add.rectangle(gameWidth / 2 - 250, gameHeight / 2 - 150, 22, 22, ColorHex.vermilion, 1);
     seal.setStrokeStyle(1, ColorHex.gold, 0.9);
     const title = scene.add
-      .text(gameWidth / 2, gameHeight / 2 - 158, "蓬萊異聞錄 Online", {
+      .text(gameWidth / 2, gameHeight / 2 - 188, "蓬萊異聞錄 Online", {
         fontFamily: uiFont,
         fontSize: "30px",
         color: ColorText.gold,
@@ -48,59 +48,63 @@ export class TitleScreenView {
       })
       .setOrigin(0.5);
     const subtitle = scene.add
-      .text(gameWidth / 2, gameHeight / 2 - 104, "霧港試煉場", {
+      .text(gameWidth / 2, gameHeight / 2 - 134, "霧港試煉場", {
         fontFamily: uiFont,
         fontSize: "16px",
         color: ColorText.sand
       })
       .setOrigin(0.5);
     this.titleSlotText = scene.add
-      .text(gameWidth / 2 - 245, gameHeight / 2 - 58, "", {
-        fontSize: "15px",
+      .text(gameWidth / 2 - 245, gameHeight / 2 - 96, "", {
+        fontFamily: uiFont,
+        fontSize: "13px",
         color: "#f2efe6",
         fixedWidth: 490,
-        lineSpacing: 8,
+        lineSpacing: 4,
         wordWrap: { width: 490 }
       })
       .setOrigin(0, 0);
     this.titleCharacterText = scene.add
-      .text(gameWidth / 2 - 245, gameHeight / 2 - 4, "", {
-        fontSize: "15px",
+      .text(gameWidth / 2 - 245, gameHeight / 2 + 2, "", {
+        fontFamily: uiFont,
+        fontSize: "13px",
         color: "#f6ead2",
         fixedWidth: 490,
-        lineSpacing: 7,
+        lineSpacing: 4,
         wordWrap: { width: 490 }
       })
       .setOrigin(0, 0);
     const controls = scene.add
       .text(
         gameWidth / 2 - 245,
-        gameHeight / 2 + 78,
+        gameHeight / 2 + 72,
         [
-          "Enter 進入遊戲",
-          "← / → 切換職業 | N 切換預設名稱",
-          "直接輸入英文/數字改名 | Backspace 刪字",
-          "R 新存檔 | L 上一個存檔 | Y 複製代碼 | G 登出",
-          "1/2/3 切換帳號存檔（登入後）"
+          "Enter 進入 | ← / → 切換職業 | N 預設名稱",
+          "直接輸入文字改名 | Backspace 刪字",
+          "R 新存檔 | L 上一存檔 | Y 複製存檔碼",
+          "1/2/3 帳號存檔（登入後） | G 登出"
         ].join("\n"),
         {
-          fontSize: "14px",
+          fontFamily: uiFont,
+          fontSize: "13px",
           color: "#d8cfae",
           fixedWidth: 490,
-          lineSpacing: 7
+          lineSpacing: 4
         }
       )
       .setOrigin(0, 0);
     this.titleNoticeText = scene.add
-      .text(gameWidth / 2, gameHeight / 2 + 152, "", {
-        fontSize: "14px",
+      .text(gameWidth / 2, gameHeight / 2 + 216, "", {
+        fontFamily: uiFont,
+        fontSize: "13px",
         color: "#91f0a5",
         fixedWidth: 520,
         align: "center"
       })
       .setOrigin(0.5);
     this.titleAuthText = scene.add
-      .text(gameWidth / 2, gameHeight / 2 + 128, "", {
+      .text(gameWidth / 2, gameHeight / 2 + 164, "", {
+        fontFamily: uiFont,
         fontSize: "13px",
         color: "#d8cfae",
         fixedWidth: 520,
@@ -143,8 +147,7 @@ export class TitleScreenView {
       [
         `角色名稱：${state.characterName}`,
         `職業：${state.classLabel}`,
-        state.classDescription,
-        "進入遊戲後會寫入 SQLite 角色資料。"
+        state.classDescription
       ].join("\n")
     );
     this.titleAuthText.setText(this.getAuthText(state));
@@ -168,7 +171,8 @@ export class TitleScreenView {
 
   private createMockLoginButton(onMockLogin: () => void): Phaser.GameObjects.Text {
     const button = this.scene.add
-      .text(gameWidth / 2, gameHeight / 2 + 184, "▶ 測試登入（輸入 Email）", {
+      .text(gameWidth / 2, gameHeight / 2 + 190, "▶ 測試登入（輸入 Email）", {
+        fontFamily: uiFont,
         fontSize: "13px",
         color: "#ffd76a",
         backgroundColor: "#1c3b2e",

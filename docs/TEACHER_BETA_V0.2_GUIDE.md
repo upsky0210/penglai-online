@@ -1,7 +1,7 @@
 # 教師 Beta v0.2 操作手冊
 
 專案：蓬萊異聞錄 Online  
-日期：2026-06-28
+日期：2026-07-13
 
 ## 啟動方式
 
@@ -30,15 +30,17 @@ http://老師電腦IP:5174
 http://老師電腦IP:5174/?admin=1
 ```
 
-預設測試 token：
+本機 smoke 才能使用的測試 token：
 
 ```text
 smoke-admin
 ```
 
-正式測試請改成自己的 `ADMIN_TOKEN`。
+正式試教不得使用上述值；請設定至少 20 字元、只提供給授課老師的 `ADMIN_TOKEN`。
 
 ## 課堂建議流程
+
+完整的 30～45 分鐘逐段腳本、觀察重點與縮時方式，見 `docs/P9-E-TRIAL-RELEASE.md`。
 
 1. 老師先開後台，確認線上人數。
 2. 用公告發送測試目標，例如「請完成第一章前 3 個任務」。
@@ -92,9 +94,12 @@ T：回饋表
 
 建議匯出：
 
+- 課堂成果 CSV
 - 角色 CSV
 - 聊天 CSV
 - 公告 CSV
 - 回饋 CSV
 
 可貼到 Google Sheet 或 Padlet 作為課堂 AI 開發紀錄。
+
+匯出後請確認課堂成果 CSV 不含密碼、token、session、save slot 或學生 email。
