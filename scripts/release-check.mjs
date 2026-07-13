@@ -23,6 +23,8 @@ const releaseEnvironment = {
   PENGLAI_BACKUP_DIR: backupDirectory,
   PORT: String(port),
   AUTH_CORS_ORIGIN: httpUrl,
+  AUTH_ALLOW_MOCK: "1",
+  GOOGLE_HOSTED_DOMAIN: "",
   SMOKE_ADMIN_TOKEN: adminToken,
   SMOKE_BASE_URL: httpUrl,
   SMOKE_HTTP_URL: httpUrl,

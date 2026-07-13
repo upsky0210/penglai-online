@@ -53,3 +53,16 @@ dev server 不適合直接公開到 Internet
 卡關警示只供教師判讀，不得自動操作學生角色
 後台列表不得用高頻廣播推送；建議更新間隔不得短於 15 秒
 ```
+
+## P10-A 小規模試教隔離
+
+```text
+每梯使用新的 tmp/p10-a/<session-id>/data/penglai.sqlite，不沿用一般資料庫
+Session ID、觀察表與匯出檔只用 S01-S10 代號，不記姓名、學號或 token
+真人模式必須關閉 AUTH_ALLOW_MOCK 與 VITE_AUTH_ALLOW_MOCK
+ADMIN_TOKEN 只在老師啟動程序記憶體中，不得寫入 session.json、log 或 CSV
+重置前停止 server，且必須輸入完整 --confirm-reset=<session-id>
+重置已有資料時必須先留下 pre-reset SQLite 備份
+緊急還原後必須確認 PRAGMA integrity_check 為 ok 才重新開放學生連線
+模擬彩排與真人試教結果必須分開標示
+```
