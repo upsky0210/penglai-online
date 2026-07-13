@@ -19,7 +19,20 @@ interface OnlinePlayer {
   saveSlot?: string;
   authenticated: boolean;
   muted: boolean;
-  updatedAt: number;
+  mapId: string;
+  mapName: string;
+  currentQuestId?: string;
+  currentQuestTitle: string;
+  questStatus: "available" | "active" | "ready" | "completed";
+  questProgress: number;
+  questTarget: number;
+  completedQuests: number;
+  totalQuests: number;
+  lastActivityAt: number;
+  mapEnteredAt: number;
+  deathCount10m: number;
+  potentiallyStuck: boolean;
+  stuckReasons: string[];
 }
 
 interface ChatLog {
@@ -222,6 +235,7 @@ export function mountAdminDashboard(root: HTMLElement) {
         <button id="admin-action-download" type="button">下載操作 CSV</button>
         <button id="admin-announcement-download" type="button">下載公告 CSV</button>
         <button id="admin-feedback-download" type="button">下載回饋 CSV</button>
+        <button id="admin-progress-download" type="button">下載課堂成果 CSV</button>
       </section>
       <p id="admin-status" class="admin-status">請先輸入 ADMIN_TOKEN 後重新整理。</p>
       <section class="admin-metrics" aria-label="統計"></section>
@@ -293,9 +307,10 @@ export function mountAdminDashboard(root: HTMLElement) {
         <button id="admin-chat-lock" type="button">鎖定聊天</button>
       </section>
       <section class="admin-grid">
-        <section class="admin-table-section" aria-label="線上玩家">
+        <section class="admin-table-section admin-classroom-progress" aria-label="線上學生進度">
           <div class="admin-section-head">
-            <h2>線上玩家</h2>
+            <h2 id="admin-progress-title">線上學生進度</h2>
+            <label class="admin-stuck-filter"><input id="admin-stuck-only" type="checkbox" /> 只看需關注</label>
           </div>
           <div class="admin-list" id="admin-online-list"></div>
         </section>
@@ -358,6 +373,7 @@ export function mountAdminDashboard(root: HTMLElement) {
   const actionDownloadButton = root.querySelector<HTMLButtonElement>("#admin-action-download")!;
   const announcementDownloadButton = root.querySelector<HTMLButtonElement>("#admin-announcement-download")!;
   const feedbackDownloadButton = root.querySelector<HTMLButtonElement>("#admin-feedback-download")!;
+  const progressDownloadButton = root.querySelector<HTMLButtonElement>("#admin-progress-download")!;
   const backupButton = root.querySelector<HTMLButtonElement>("#admin-backup-create")!;
   const testDataDryRunButton = root.querySelector<HTMLButtonElement>("#admin-test-data-dry-run")!;
   const testDataCleanupButton = root.querySelector<HTMLButtonElement>("#admin-test-data-cleanup")!;
@@ -375,6 +391,8 @@ export function mountAdminDashboard(root: HTMLElement) {
   const backupList = root.querySelector<HTMLElement>("#admin-backup-list")!;
   const testDataList = root.querySelector<HTMLElement>("#admin-test-data-list")!;
   const onlineList = root.querySelector<HTMLElement>("#admin-online-list")!;
+  const progressTitle = root.querySelector<HTMLHeadingElement>("#admin-progress-title")!;
+  const stuckOnlyInput = root.querySelector<HTMLInputElement>("#admin-stuck-only")!;
   const chatList = root.querySelector<HTMLElement>("#admin-chat-list")!;
   const actionList = root.querySelector<HTMLElement>("#admin-action-list")!;
   const announcementList = root.querySelector<HTMLElement>("#admin-announcement-list")!;
@@ -510,22 +528,32 @@ export function mountAdminDashboard(root: HTMLElement) {
   };
 
   const renderOnlinePlayers = () => {
+    const visiblePlayers = stuckOnlyInput.checked
+      ? onlinePlayers.filter((player) => player.potentiallyStuck)
+      : onlinePlayers;
+    const stuckCount = onlinePlayers.filter((player) => player.potentiallyStuck).length;
+    progressTitle.textContent = `線上學生進度（${onlinePlayers.length} 人／需關注 ${stuckCount} 人）`;
     onlineList.innerHTML =
-      onlinePlayers
+      visiblePlayers
         .map(
           (player) => `
-            <article>
-              <strong>${escapeHtml(player.name)}</strong>
-              <span>${classLabels[player.className]} Lv.${player.level} · HP ${player.hp}/${player.maxHp}</span>
-              <small>${player.authenticated ? "Google 已登入" : "Guest"} · ${player.muted ? "已靜音" : "可聊天"} · ${escapeHtml(formatSaveSlot(player.saveSlot ?? ""))}</small>
+            <article class="${player.potentiallyStuck ? "admin-student-alert" : ""}">
+              <strong>${escapeHtml(player.name)} ${player.potentiallyStuck ? '<span class="admin-alert-badge">需關注</span>' : ""}</strong>
+              <span>${classLabels[player.className]} Lv.${player.level} · ${escapeHtml(player.mapName)} · 已完成 ${player.completedQuests}/${player.totalQuests}</span>
+              <span>目前：${escapeHtml(player.currentQuestTitle)} · ${formatQuestStatus(player.questStatus)} · ${player.questProgress}/${player.questTarget}</span>
+              <small>最後活動 ${formatRelativeTime(player.lastActivityAt)} · 本關停留 ${formatRelativeTime(player.mapEnteredAt)} · 10 分鐘死亡 ${player.deathCount10m} 次</small>
+              ${player.stuckReasons.map((reason) => `<small class="admin-alert-reason">⚠ ${escapeHtml(reason)}</small>`).join("")}
+              <label class="admin-student-hint"><span>個別提示</span><input type="text" maxlength="180" data-student-hint placeholder="給學生一則短提示，不代做任務" /></label>
               <div class="admin-actions">
+                <button type="button" data-action="hint" data-player-id="${escapeHtml(player.playerId)}">送出提示</button>
+                <button type="button" data-action="reset-position" data-player-id="${escapeHtml(player.playerId)}">送回安全區</button>
                 <button type="button" data-action="mute" data-player-id="${escapeHtml(player.playerId)}">${player.muted ? "解除靜音" : "靜音"}</button>
                 <button type="button" data-action="kick" data-player-id="${escapeHtml(player.playerId)}">踢出</button>
               </div>
             </article>
           `
         )
-        .join("") || `<p>目前沒有線上玩家。</p>`;
+        .join("") || `<p>${stuckOnlyInput.checked ? "目前沒有需要關注的學生。" : "目前沒有線上學生。"}</p>`;
   };
 
   const renderChatLogs = () => {
@@ -673,7 +701,7 @@ export function mountAdminDashboard(root: HTMLElement) {
       ] = await Promise.all([
         fetchJson<AdminSummary>("/admin/summary"),
         fetchJson<{ characters: AdminCharacter[] }>("/admin/characters?limit=500"),
-        fetchJson<{ onlinePlayers: OnlinePlayer[] }>("/admin/online"),
+        fetchJson<{ students: OnlinePlayer[] }>("/admin/classroom/progress"),
         fetchJson<{ chatLogs: ChatLog[] }>("/admin/chat-logs?limit=80"),
         fetchJson<{ actionLogs: AdminActionLog[] }>("/admin/action-logs?limit=80"),
         fetchJson<{ announcements: Announcement[] }>("/admin/announcements?limit=30"),
@@ -685,7 +713,7 @@ export function mountAdminDashboard(root: HTMLElement) {
         fetchJson<{ report: TestDataReport }>("/admin/test-data")
       ]);
       characters = characterPayload.characters;
-      onlinePlayers = onlinePayload.onlinePlayers;
+      onlinePlayers = onlinePayload.students;
       chatLogs = chatPayload.chatLogs;
       actionLogs = actionPayload.actionLogs;
       announcements = announcementPayload.announcements;
@@ -885,6 +913,40 @@ export function mountAdminDashboard(root: HTMLElement) {
     }
   };
 
+  const classroomPlayerAction = async (button: HTMLButtonElement) => {
+    const playerId = button.dataset.playerId ?? "";
+    const action = button.dataset.action ?? "";
+    const card = button.closest<HTMLElement>("article");
+    const hintInput = card?.querySelector<HTMLInputElement>("[data-student-hint]");
+    if (action === "mute" || action === "kick") {
+      await moderatePlayer(playerId, action);
+      return;
+    }
+    if (action === "hint" && !hintInput?.value.trim()) {
+      setStatus("請先輸入要給學生的提示。", "error");
+      return;
+    }
+    if (action === "reset-position" && !window.confirm("只將這位學生送回目前關卡安全區；任務、等級、道具與存檔都會保留。確定執行？")) {
+      return;
+    }
+    const path = action === "hint" ? "/admin/classroom/hint" : "/admin/classroom/reset-position";
+    try {
+      button.disabled = true;
+      const response = await fetch(withToken(path), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId, text: hintInput?.value.trim() })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setStatus(action === "hint" ? "個別提示已送達。" : "學生已安全送回目前關卡入口，進度均保留。", "ok");
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "課堂操作失敗。", "error");
+    } finally {
+      button.disabled = false;
+    }
+  };
+
   const updateFeedbackStatus = async (container: HTMLElement) => {
     const id = Number.parseInt(container.dataset.feedbackId ?? "", 10);
     const statusSelect = container.querySelector<HTMLSelectElement>("[data-feedback-status]");
@@ -920,6 +982,7 @@ export function mountAdminDashboard(root: HTMLElement) {
   actionDownloadButton.addEventListener("click", () => downloadCsv("/admin/action-logs.csv"));
   announcementDownloadButton.addEventListener("click", () => downloadCsv("/admin/announcements.csv"));
   feedbackDownloadButton.addEventListener("click", () => downloadCsv("/admin/feedback.csv"));
+  progressDownloadButton.addEventListener("click", () => downloadCsv("/admin/classroom/progress.csv"));
   backupButton.addEventListener("click", () => void createBackup());
   testDataDryRunButton.addEventListener("click", () => void cleanupTestData(true));
   testDataCleanupButton.addEventListener("click", () => void cleanupTestData(false));
@@ -931,8 +994,9 @@ export function mountAdminDashboard(root: HTMLElement) {
       return;
     }
 
-    void moderatePlayer(button.dataset.playerId ?? "", button.dataset.action ?? "");
+    void classroomPlayerAction(button);
   });
+  stuckOnlyInput.addEventListener("change", renderOnlinePlayers);
   feedbackList.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-feedback-update]");
     if (!button) {
@@ -988,10 +1052,21 @@ function formatAction(action: string) {
     mute_player: "靜音玩家",
     unmute_player: "解除靜音",
     kick_player: "踢出玩家",
+    student_hint: "發送個別提示",
+    reset_player_position: "送回目前關卡安全區",
     database_backup: "建立資料庫備份",
     cleanup_smoke_test_data: "清理 Smoke 測試資料"
   };
   return labels[action] ?? action;
+}
+
+function formatQuestStatus(status: OnlinePlayer["questStatus"]) {
+  return { available: "可接取", active: "進行中", ready: "可回報", completed: "已完成" }[status];
+}
+
+function formatRelativeTime(timestamp: number) {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  return elapsedSeconds < 60 ? `${elapsedSeconds} 秒前` : elapsedSeconds < 3600 ? `${Math.floor(elapsedSeconds / 60)} 分鐘前` : `${Math.floor(elapsedSeconds / 3600)} 小時前`;
 }
 
 function formatDetails(details: string) {

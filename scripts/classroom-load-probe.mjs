@@ -9,7 +9,7 @@ import { WebSocket } from "ws";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tempDirectory = await mkdtemp(join(tmpdir(), "penglai-classroom-load-"));
 const sampleMs = Number.parseInt(process.env.LOAD_PROBE_SAMPLE_MS ?? "5000", 10);
-const scenarios = [10, 30];
+const scenarios = [10, 30, 40];
 const reports = [];
 
 try {
@@ -28,6 +28,7 @@ async function runScenario(playerCount) {
   const wsUrl = `ws://127.0.0.1:${port}`;
   const databasePath = join(tempDirectory, `load-${playerCount}.sqlite`);
   const backupDirectory = join(tempDirectory, `backups-${playerCount}`);
+  const adminToken = `classroom_load_${playerCount}_secure_token`;
   const serverOutput = [];
   const server = spawn(
     process.execPath,
@@ -38,7 +39,8 @@ async function runScenario(playerCount) {
         ...process.env,
         PORT: String(port),
         PENGLAI_DB_PATH: databasePath,
-        PENGLAI_BACKUP_DIR: backupDirectory
+        PENGLAI_BACKUP_DIR: backupDirectory,
+        ADMIN_TOKEN: adminToken
       },
       stdio: ["ignore", "pipe", "pipe"]
     }
@@ -85,7 +87,8 @@ async function runScenario(playerCount) {
     await wait(sampleMs);
     clearInterval(activityTimer);
     const after = await fetchLoadStats(httpUrl);
-    const report = buildReport(playerCount, before, after, clients);
+    const classroomAdmin = await fetchClassroomProgress(httpUrl, adminToken);
+    const report = buildReport(playerCount, before, after, clients, classroomAdmin);
     printReport(report);
     assertReport(report, after);
     return report;
@@ -135,7 +138,7 @@ function connectClient(wsUrl, playerCount, index) {
   });
 }
 
-function buildReport(playerCount, before, after, clients) {
+function buildReport(playerCount, before, after, clients, classroomAdmin) {
   const seconds = sampleMs / 1000;
   const tickSamples = after.tick.samples - before.tick.samples;
   const tickDurationMs = after.tick.totalDurationMs - before.tick.totalDurationMs;
@@ -170,7 +173,9 @@ function buildReport(playerCount, before, after, clients) {
     saveFailures,
     averageSaveDurationMs: saveDurationSamples > 0 ? saveDurationMs / saveDurationSamples : 0,
     maxSaveDurationMs: after.saves.maxDurationMs,
-    queuedSaves: after.saves.queued
+    queuedSaves: after.saves.queued,
+    classroomAdminResponseMs: classroomAdmin.responseMs,
+    classroomAdminStudents: classroomAdmin.students
   };
 }
 
@@ -185,7 +190,8 @@ function printReport(report) {
       `bytes/client/s=${Math.round(report.serverBytesPerClientPerSecond)}`,
       `snapshots/client/s=${report.snapshotsPerClientPerSecond.toFixed(1)}`,
       `save avg/max=${report.averageSaveDurationMs.toFixed(2)}/${report.maxSaveDurationMs.toFixed(2)}ms`,
-      `save attempts/failures/queued=${report.saveAttempts}/${report.saveFailures}/${report.queuedSaves}`
+      `save attempts/failures/queued=${report.saveAttempts}/${report.saveFailures}/${report.queuedSaves}`,
+      `admin list=${report.classroomAdminStudents} in ${report.classroomAdminResponseMs.toFixed(2)}ms`
     ].join(", ")
   );
 }
@@ -205,6 +211,18 @@ function assertReport(report, after) {
   assertAtMost(report.averageSaveDurationMs, 25, "average save duration ms");
   assertAtMost(report.maxSaveDurationMs, 150, "maximum save duration ms");
   assertAtMost(report.queuedSaves, 0, "queued saves after sample");
+  assertAtLeast(report.classroomAdminStudents, report.players, "classroom admin students");
+  assertAtMost(report.classroomAdminResponseMs, 500, "classroom admin response ms");
+}
+
+async function fetchClassroomProgress(httpUrl, adminToken) {
+  const startedAt = performance.now();
+  const response = await fetch(`${httpUrl}/admin/classroom/progress?token=${encodeURIComponent(adminToken)}`);
+  const payload = await response.json();
+  if (!response.ok || !Array.isArray(payload.students)) {
+    throw new Error(`/admin/classroom/progress responded ${response.status}`);
+  }
+  return { responseMs: performance.now() - startedAt, students: payload.students.length };
 }
 
 function assertAtLeast(actual, expected, label) {

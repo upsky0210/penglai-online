@@ -29,6 +29,9 @@ Google Client ID 若未設定，先使用訪客存檔測試
 踢出玩家
 建立備份
 查看與匯出測試回饋
+查看線上學生任務進度與保守卡關警示
+發送個別提示、送回目前關卡安全區
+匯出不含登入資料的課堂成果 CSV
 ```
 
 ## 風險
@@ -37,4 +40,16 @@ Google Client ID 若未設定，先使用訪客存檔測試
 dev server 不適合直接公開到 Internet
 目前管理權限只有 token，尚未做分級帳號
 學生若知道 ADMIN_TOKEN 就能進管理面板
+```
+
+## P9-D 敏感操作檢查
+
+```text
+/admin/classroom/progress、hint、reset-position 與 progress.csv 必須驗證 ADMIN_TOKEN
+個別提示與位置重置只接受目前在線的 playerId
+位置重置不得變更地圖、任務、等級、經驗、道具、裝備或存檔識別
+全班提示、個別提示、位置重置都必須出現在 action log
+課堂成果 CSV 不得包含 email、save slot、password、token 或 session
+卡關警示只供教師判讀，不得自動操作學生角色
+後台列表不得用高頻廣播推送；建議更新間隔不得短於 15 秒
 ```

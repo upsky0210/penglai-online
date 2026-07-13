@@ -106,6 +106,15 @@ const playerSkillReadyAt = new Map<string, Map<SkillId, number>>();
 const playerChatReadyAt = new Map<string, number>();
 const playerReturnSafeReadyAt = new Map<string, number>();
 const mutedPlayers = new Map<string, { reason: string; mutedAt: number }>();
+interface PlayerClassroomActivity {
+  connectedAt: number;
+  mapEnteredAt: number;
+  lastMovementAt: number;
+  lastInteractionAt: number;
+  lastQuestProgressAt: number;
+  deathTimes: number[];
+}
+const playerClassroomActivity = new Map<string, PlayerClassroomActivity>();
 const recentAttacks = new Map<string, number>();
 const playerIdentityLocked = new Set<string>();
 const playerMovementStates = new Map<
@@ -137,6 +146,9 @@ const itemPickupRange = 72;
 const itemDropLifetimeMs = 60_000;
 const chatCooldownMs = 1200;
 const returnSafeCooldownMs = 15_000;
+const classroomNoActivityThresholdMs = 5 * 60_000;
+const classroomNoProgressThresholdMs = 10 * 60_000;
+const classroomRepeatedDeathWindowMs = 10 * 60_000;
 const messageValidationStats = {
   invalidMessages: 0,
   rejectedMapChanges: 0,
@@ -481,6 +493,16 @@ async function readJsonBody(request: IncomingMessage) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }
 
+function markPlayerActivity(playerId: string, kind: "movement" | "interaction" | "quest", now = Date.now()) {
+  const activity = playerClassroomActivity.get(playerId);
+  if (!activity) {
+    return;
+  }
+  if (kind === "movement") activity.lastMovementAt = now;
+  if (kind === "interaction") activity.lastInteractionAt = now;
+  if (kind === "quest") activity.lastQuestProgressAt = now;
+}
+
 const adminApi = new AdminApi({
   adminToken,
   sendJson,
@@ -495,6 +517,10 @@ const adminApi = new AdminApi({
     "GET /admin/characters": (_request, response, url) => sendAdminCharacters(response, url),
     "GET /admin/characters.csv": (_request, response, url) => sendAdminCharactersCsv(response, url),
     "GET /admin/online": (_request, response, url) => sendAdminOnlinePlayers(response, url),
+    "GET /admin/classroom/progress": (_request, response, url) => sendAdminClassroomProgress(response, url),
+    "GET /admin/classroom/progress.csv": (_request, response, url) => sendAdminClassroomProgressCsv(response, url),
+    "POST /admin/classroom/hint": handleAdminStudentHint,
+    "POST /admin/classroom/reset-position": handleAdminResetPosition,
     "POST /admin/broadcast": handleAdminBroadcast,
     "GET /admin/announcements": (_request, response, url) => sendAdminAnnouncements(response, url),
     "GET /admin/announcements.csv": (_request, response, url) => sendAdminAnnouncementsCsv(response, url),
@@ -1491,6 +1517,218 @@ function createPlayerSaveSnapshot(playerId: string) {
   return { saveSlot, data };
 }
 
+function getQuestMapId(quest: QuestSnapshot | (typeof QUEST_DEFINITIONS)[number]) {
+  return Object.values(GAME_MAPS).find((map) => map.npcs.some((npc) => npc.id === quest.npcId))?.id ?? DEFAULT_GAME_MAP.id;
+}
+
+function getCurrentQuest(quests: Map<string, QuestSnapshot>) {
+  const ready = [...quests.values()].find((quest) => quest.status === "ready");
+  const active = [...quests.values()].find((quest) => quest.status === "active");
+  const available = [...quests.values()].find(
+    (quest) =>
+      quest.status === "available" &&
+      (quest.prerequisiteQuestIds ?? []).every((questId) => quests.get(questId)?.status === "completed")
+  );
+  return ready ?? active ?? available;
+}
+
+function getLockedQuestNearby(player: PlayerSnapshot, quests: Map<string, QuestSnapshot>) {
+  return [...quests.values()].find((quest) => {
+    if (quest.status !== "available" || getQuestMapId(quest) !== player.mapId) return false;
+    const missing = (quest.prerequisiteQuestIds ?? []).filter((questId) => quests.get(questId)?.status !== "completed");
+    const npc = getPlayerMap(player).npcs.find((candidate) => candidate.id === quest.npcId);
+    return missing.length > 0 && Boolean(npc && Math.abs(player.x - npc.x) <= 180 && Math.abs(player.y - npc.y) <= 120);
+  });
+}
+
+function getClassroomPlayerRows(now = Date.now()) {
+  return [...players.values()].map((player) => {
+    const quests = playerQuests.get(player.id) ?? createInitialQuests();
+    const activity = playerClassroomActivity.get(player.id);
+    const currentQuest = getCurrentQuest(quests);
+    const lastActivityAt = activity
+      ? Math.max(activity.lastMovementAt, activity.lastInteractionAt, activity.lastQuestProgressAt)
+      : player.updatedAt;
+    const recentDeaths = activity
+      ? activity.deathTimes.filter((deathAt) => deathAt >= now - classroomRepeatedDeathWindowMs)
+      : [];
+    if (activity) activity.deathTimes = recentDeaths;
+    const stuckReasons: string[] = [];
+    if (activity && now - lastActivityAt >= classroomNoActivityThresholdMs) {
+      stuckReasons.push("超過 5 分鐘沒有移動或互動");
+    }
+    if (
+      activity &&
+      currentQuest?.status === "active" &&
+      now - activity.mapEnteredAt >= classroomNoProgressThresholdMs &&
+      now - activity.lastQuestProgressAt >= classroomNoProgressThresholdMs
+    ) {
+      stuckReasons.push("同一關卡 10 分鐘且任務沒有進度");
+    }
+    if (recentDeaths.length >= 3) stuckReasons.push("10 分鐘內重複死亡 3 次以上");
+    const lockedNearby = getLockedQuestNearby(player, quests);
+    if (lockedNearby && activity && now - lastActivityAt >= classroomNoActivityThresholdMs) {
+      const missingTitles = (lockedNearby.prerequisiteQuestIds ?? [])
+        .filter((questId) => quests.get(questId)?.status !== "completed")
+        .map((questId) => quests.get(questId)?.title ?? questId);
+      stuckReasons.push(`停在後續目標附近，尚缺：${missingTitles.join("、")}`);
+    }
+    return {
+      playerId: player.id,
+      name: player.name,
+      className: player.className,
+      level: player.level,
+      mapId: player.mapId,
+      mapName: getPlayerMap(player).name,
+      currentQuestId: currentQuest?.id,
+      currentQuestTitle: currentQuest?.title ?? "六關任務皆完成",
+      questStatus: currentQuest?.status ?? "completed",
+      questProgress: currentQuest?.progress ?? QUEST_DEFINITIONS.length,
+      questTarget: currentQuest?.targetCount ?? QUEST_DEFINITIONS.length,
+      completedQuests: [...quests.values()].filter((quest) => quest.status === "completed").length,
+      totalQuests: quests.size,
+      lastActivityAt,
+      mapEnteredAt: activity?.mapEnteredAt ?? player.updatedAt,
+      deathCount10m: recentDeaths.length,
+      potentiallyStuck: stuckReasons.length > 0,
+      stuckReasons,
+      authenticated: playerAccountIds.has(player.id),
+      muted: mutedPlayers.has(player.id)
+    };
+  });
+}
+
+function sendAdminClassroomProgress(response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+  const generatedAt = Date.now();
+  const students = getClassroomPlayerRows(generatedAt).sort(
+    (left, right) => Number(right.potentiallyStuck) - Number(left.potentiallyStuck) || left.name.localeCompare(right.name, "zh-TW")
+  );
+  sendJson(response, 200, {
+    generatedAt,
+    refreshAfterMs: 15_000,
+    students,
+    summary: { online: students.length, potentiallyStuck: students.filter((student) => student.potentiallyStuck).length }
+  });
+}
+
+function sendAdminClassroomProgressCsv(response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+  flushDirtyPlayerGames();
+  const characters = listAdminCharacters(1000);
+  const lines = [
+    ["character_name", "class_name", "level", "map", "completed_quests", "total_quests", "current_quest", "quest_status", "quest_progress", "updated_at"].map(csvCell).join(","),
+    ...characters.map((character) => {
+      const saved = loadGame(character.saveSlot);
+      const quests = createQuestsFromSave(saved.quests);
+      const current = getCurrentQuest(quests);
+      const map = getGameMap(saved.character?.mapId);
+      return [
+        character.characterName,
+        character.className,
+        character.level,
+        map.name,
+        [...quests.values()].filter((quest) => quest.status === "completed").length,
+        quests.size,
+        current?.title ?? "六關任務皆完成",
+        current?.status ?? "completed",
+        current ? `${current.progress}/${current.targetCount}` : `${quests.size}/${quests.size}`,
+        new Date(character.updatedAt).toISOString()
+      ].map(csvCell).join(",");
+    })
+  ];
+  response.setHeader("Content-Disposition", 'attachment; filename="penglai-classroom-progress.csv"');
+  sendText(response, 200, "text/csv; charset=utf-8", `\uFEFF${lines.join("\n")}\n`);
+}
+
+async function handleAdminStudentHint(request: IncomingMessage, response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+  try {
+    const body = await readJsonBody(request);
+    const playerId = typeof body.playerId === "string" ? body.playerId : "";
+    const text = normalizeAdminText(body.text);
+    const player = players.get(playerId);
+    const socket = sockets.get(playerId);
+    if (!player || !socket) {
+      sendJson(response, 404, { error: "player_not_online" });
+      return;
+    }
+    if (!text) {
+      sendJson(response, 400, { error: "empty_hint" });
+      return;
+    }
+    const sentAt = Date.now();
+    send(socket, { type: "admin:notice", text, sentAt, category: "classroom" });
+    logAdminAction({
+      action: "student_hint",
+      targetPlayerId: playerId,
+      targetPlayerName: player.name,
+      details: JSON.stringify({ text, delivered: 1 }),
+      createdAt: sentAt
+    });
+    sendJson(response, 200, { ok: true, delivered: 1, sentAt });
+  } catch {
+    sendJson(response, 400, { error: "invalid_request" });
+  }
+}
+
+async function handleAdminResetPosition(request: IncomingMessage, response: ServerResponse, url: URL) {
+  if (!isAdminRequest(url)) {
+    rejectAdminRequest(response);
+    return;
+  }
+  try {
+    const body = await readJsonBody(request);
+    const playerId = typeof body.playerId === "string" ? body.playerId : "";
+    const player = players.get(playerId);
+    const socket = sockets.get(playerId);
+    if (!player || !socket) {
+      sendJson(response, 404, { error: "player_not_online" });
+      return;
+    }
+    const map = getPlayerMap(player);
+    const now = Date.now();
+    const nextPlayer = { ...player, x: map.playerSpawn.x, y: map.playerSpawn.y, animation: "idle" as const, updatedAt: now };
+    players.set(playerId, nextPlayer);
+    resetPlayerMovementState(playerId, now);
+    playerInvulnerableUntil.set(playerId, now + playerRespawnInvulnerableMs);
+    const activity = playerClassroomActivity.get(playerId);
+    if (activity) {
+      activity.lastMovementAt = now;
+      activity.lastInteractionAt = now;
+    }
+    send(socket, { type: "map:change", playerId, mapId: map.id, x: map.playerSpawn.x, y: map.playerSpawn.y, map });
+    send(socket, { type: "admin:notice", text: "老師已將你安全送回目前關卡入口；任務與道具都已保留。", sentAt: now, category: "classroom" });
+    savePlayerGame(playerId);
+    broadcastWorldSnapshots();
+    logAdminAction({
+      action: "reset_player_position",
+      targetPlayerId: playerId,
+      targetPlayerName: player.name,
+      details: JSON.stringify({
+        mapId: map.id,
+        x: map.playerSpawn.x,
+        y: map.playerSpawn.y,
+        preserved: ["quests", "level", "inventory", "equipment", "save"],
+        testData: playerSaveSlots.get(playerId)?.toLowerCase().includes("smoke") ? "Smoke" : undefined
+      }),
+      createdAt: now
+    });
+    sendJson(response, 200, { ok: true, playerId, mapId: map.id, x: map.playerSpawn.x, y: map.playerSpawn.y, preserved: ["quests", "level", "inventory", "equipment", "save"] });
+  } catch {
+    sendJson(response, 400, { error: "invalid_request" });
+  }
+}
+
 function savePlayerGame(playerId: string) {
   return saveCoordinator.queuePlayer(playerId);
 }
@@ -1902,6 +2140,8 @@ function damagePlayer(playerId: string, rawDamage: number, now: number) {
 
   if (defeated) {
     playerRespawnAt.set(playerId, now + playerRespawnDelayMs);
+    const activity = playerClassroomActivity.get(playerId);
+    if (activity) activity.deathTimes.push(now);
   }
 
   broadcast({
@@ -2349,6 +2589,12 @@ function handlePortalEnter(playerId: string, portalId: string) {
     updatedAt: Date.now()
   };
   players.set(playerId, nextPlayer);
+  const activity = playerClassroomActivity.get(playerId);
+  if (activity) {
+    activity.mapEnteredAt = nextPlayer.updatedAt;
+    activity.lastMovementAt = nextPlayer.updatedAt;
+    activity.lastInteractionAt = nextPlayer.updatedAt;
+  }
   resetPlayerMovementState(playerId, nextPlayer.updatedAt);
   playerInvulnerableUntil.set(playerId, Date.now() + playerRespawnInvulnerableMs);
   sendToPlayer(playerId, {
@@ -2425,6 +2671,7 @@ function sendQuest(playerId: string) {
 }
 
 function sendSingleQuest(playerId: string, quest: QuestSnapshot) {
+  markPlayerActivity(playerId, "quest");
   sendToPlayer(playerId, {
     type: "quest:update",
     playerId,
@@ -2969,6 +3216,15 @@ function connectPlayer(ws: WebSocket, request: IncomingMessage): PlayerConnectio
   }
   resetPlayerMovementState(playerId);
   playerQuests.set(playerId, createQuestsFromSave(savedGame.quests));
+  const connectedAt = Date.now();
+  playerClassroomActivity.set(playerId, {
+    connectedAt,
+    mapEnteredAt: connectedAt,
+    lastMovementAt: connectedAt,
+    lastInteractionAt: connectedAt,
+    lastQuestProgressAt: connectedAt,
+    deathTimes: []
+  });
   inventories.set(playerId, createInventoryFromSave(savedGame.inventory));
   playerSkillReadyAt.set(playerId, new Map());
 
@@ -3033,6 +3289,9 @@ function handleClientMessage(connection: PlayerConnection, ws: WebSocket, messag
       if (!acceptedPosition) {
         return;
       }
+      if (Math.abs(acceptedPosition.x - current.x) >= 2 || Math.abs(acceptedPosition.y - current.y) >= 2) {
+        markPlayerActivity(playerId, "movement");
+      }
 
       const requestedName = normalizeCharacterName(message.player.name);
       const requestedClassName = message.player.className;
@@ -3074,46 +3333,55 @@ function handleClientMessage(connection: PlayerConnection, ws: WebSocket, messag
     }
 
     if (message.type === "combat:attack") {
+      markPlayerActivity(playerId, "interaction");
       handleAttack(playerId, message);
       return;
     }
 
     if (message.type === "item:pickup") {
+      markPlayerActivity(playerId, "interaction");
       handleItemPickup(playerId, message.dropId);
       return;
     }
 
     if (message.type === "inventory:use") {
+      markPlayerActivity(playerId, "interaction");
       handleUseItem(playerId, message.itemId);
       return;
     }
 
     if (message.type === "inventory:equip") {
+      markPlayerActivity(playerId, "interaction");
       handleEquipItem(playerId, message.itemId);
       return;
     }
 
     if (message.type === "shop:buy") {
+      markPlayerActivity(playerId, "interaction");
       handleShopBuy(playerId, message);
       return;
     }
 
     if (message.type === "npc:interact") {
+      markPlayerActivity(playerId, "interaction");
       handleNpcInteract(playerId, message.npcId);
       return;
     }
 
     if (message.type === "map:interact") {
+      markPlayerActivity(playerId, "interaction");
       handleMapInteract(playerId, message.interactableId);
       return;
     }
 
     if (message.type === "portal:enter") {
+      markPlayerActivity(playerId, "interaction");
       handlePortalEnter(playerId, message.portalId);
       return;
     }
 
     if (message.type === "player:return-safe") {
+      markPlayerActivity(playerId, "interaction");
       handleReturnSafe(playerId);
       return;
     }
@@ -3182,6 +3450,7 @@ function disconnectPlayer({ playerId }: PlayerConnection) {
     playerSkillReadyAt.delete(playerId);
     playerChatReadyAt.delete(playerId);
     playerReturnSafeReadyAt.delete(playerId);
+    playerClassroomActivity.delete(playerId);
     mutedPlayers.delete(playerId);
     playerIdentityLocked.delete(playerId);
     playerMovementStates.delete(playerId);

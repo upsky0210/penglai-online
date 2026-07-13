@@ -469,6 +469,60 @@ canvas {
   background: #fbf9f3;
 }
 
+.admin-classroom-progress {
+  grid-column: 1 / -1;
+}
+
+.admin-stuck-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-list article.admin-student-alert {
+  border-left-color: var(--vermilion);
+  background: #fffaf1;
+}
+
+.admin-alert-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--error-bg);
+  color: var(--vermilion) !important;
+  font-size: 12px;
+}
+
+.admin-alert-reason {
+  color: var(--vermilion) !important;
+  font-weight: 700;
+}
+
+.admin-student-hint {
+  display: grid;
+  grid-template-columns: 72px minmax(180px, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.admin-student-hint span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-student-hint input {
+  min-height: 36px;
+  border: 1px solid #c9cfca;
+  border-radius: 8px;
+  padding: 6px 9px;
+  font: inherit;
+}
+
 .admin-list strong {
   font-size: 15px;
   color: var(--ink);
@@ -696,6 +750,16 @@ canvas {
 }
 
 /* ---- 小螢幕 ---- */
+
+@media (max-width: 900px) {
+  .admin-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-toolbar label {
+    grid-column: 1 / -1;
+  }
+}
 
 @media (max-width: 760px) {
   .admin-topbar,

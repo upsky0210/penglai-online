@@ -133,6 +133,17 @@ POST /admin/mute?token=ADMIN_TOKEN
 POST /admin/kick?token=ADMIN_TOKEN
 ```
 
+課堂進度、個別提示與安全位置重置：
+
+```text
+GET /admin/classroom/progress?token=ADMIN_TOKEN
+GET /admin/classroom/progress.csv?token=ADMIN_TOKEN
+POST /admin/classroom/hint?token=ADMIN_TOKEN
+POST /admin/classroom/reset-position?token=ADMIN_TOKEN
+```
+
+課堂成果 CSV 不輸出帳號 email、存檔碼或任何登入憑證。個別提示與安全位置重置都會寫入操作紀錄；位置重置只改目前關卡座標。
+
 操作紀錄：
 
 ```text
@@ -205,6 +216,10 @@ npm.cmd run smoke
 /admin/broadcast
 /admin/mute
 /admin/kick
+/admin/classroom/progress
+/admin/classroom/progress.csv
+/admin/classroom/hint（含未授權與空提示）
+/admin/classroom/reset-position（驗證進度保留）
 WebSocket session:welcome
 ```
 
