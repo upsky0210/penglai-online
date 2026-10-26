@@ -1,0 +1,4 @@
+# Files that run on Linux must keep LF endings even when checked out on Windows
+# (core.autocrlf=true would otherwise turn them into CRLF and break bash/systemd).
+*.sh        text eol=lf
+deploy/**   text eol=lf

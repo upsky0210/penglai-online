@@ -9,6 +9,7 @@ v1.1 依 Fable 5 紅隊審查修正了三處「規則與事實脫節」(侵權�
 - 跨端訊息/資料型別放 `shared/`，client 與 server 都從那裡取，不要各自重複定義。
 - 資料庫：SQLite(runtime DB 與備份**不進版控**;`.gitignore` 註明可能含學生資料);存檔有 export/import(離線韌性)。
 - Session 連續性/交接:先看 [docs/WORKFLOW.md](docs/WORKFLOW.md) 與最新的 `docs/DAYn.md` 工作日誌,別重造已有脈絡。
+- 部署:課堂專用主機見 [docs/DEPLOY_UBUNTU_SERVER.md](docs/DEPLOY_UBUNTU_SERVER.md)(`deploy/ubuntu/`:nginx :80 + systemd,8787 不對外)。client 找 server 的邏輯集中在 `client/src/net/serverEndpoint.ts`;只有前端另外託管(GitHub Pages)時才設 `VITE_SERVER_URL`。`deploy/` 與 `*.sh` 由 `.gitattributes` 鎖 LF,別改成 CRLF。
 
 ## 常用指令
 

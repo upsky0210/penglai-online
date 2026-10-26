@@ -1,0 +1,12 @@
+[Unit]
+Description=Penglai Online SQLite backup (keeps 30 days)
+
+[Service]
+Type=oneshot
+User=penglai
+Group=penglai
+WorkingDirectory=/opt/penglai-online
+EnvironmentFile=/etc/penglai/penglai.env
+# VACUUM INTO snapshot: consistent even while the server is running.
+ExecStart=/usr/bin/node scripts/backup-sqlite.mjs
+ExecStartPost=/usr/bin/find /var/lib/penglai/backups -name penglai-*.sqlite -mtime +30 -delete

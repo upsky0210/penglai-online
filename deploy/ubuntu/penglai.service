@@ -1,0 +1,27 @@
+[Unit]
+Description=Penglai Online game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=penglai
+Group=penglai
+WorkingDirectory=/opt/penglai-online
+EnvironmentFile=/etc/penglai/penglai.env
+# Run node directly (not via npm) so systemd's SIGTERM reaches the server, which
+# flushes unsaved player progress before exiting.
+ExecStart=/usr/bin/node --import tsx server/src/index.ts
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+# Hardening: the server only writes its SQLite DB and backups under /var/lib/penglai.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/penglai
+
+[Install]
+WantedBy=multi-user.target

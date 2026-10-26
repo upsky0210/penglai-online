@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Penglai Online backup after school hours
+
+[Timer]
+OnCalendar=*-*-* 17:30:00
+# If the machine was off at 17:30, run the backup at next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
