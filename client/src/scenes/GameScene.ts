@@ -27,7 +27,7 @@ import {
   type SkillId
 } from "@penglai/shared";
 import { gameHeight, gameWidth, jumpSpeed, moveSpeed, normalAttackCooldownMs } from "../game/constants";
-import { characterNamePresets, clientStorageKeys, googleClientId } from "../game/clientConfig";
+import { characterNamePresets, clientStorageKeys, googleClientId, serverUrl } from "../game/clientConfig";
 import { GameAudioManager } from "../game/audioManager";
 import {
   optionalImageAssets,
@@ -64,6 +64,7 @@ import { MapRenderer } from "../game/MapRenderer";
 import { RemoteEntityLayer } from "../game/RemoteEntityLayer";
 import { visualQuality } from "../game/visualQuality";
 import { GameSocket, getGameSocketUrl } from "../net/GameSocket";
+import { getServerHttpBase } from "../net/serverEndpoint";
 import {
   formatSaveSlot,
   generateSaveSlot,
@@ -1676,12 +1677,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getApiUrl(path: string) {
-    const host = window.location.hostname;
-    if (isDevFrontend()) {
-      return `http://${host}:8787${path}`;
-    }
-
-    return `${window.location.origin}${path}`;
+    return `${getServerHttpBase(window.location, serverUrl)}${path}`;
   }
 
   private loadStoredAuthSession() {
@@ -3517,9 +3513,4 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => text.destroy()
     });
   }
-}
-
-function isDevFrontend() {
-  const host = window.location.hostname;
-  return host === "localhost" || host === "127.0.0.1" || window.location.port === "5173" || window.location.port === "5174";
 }

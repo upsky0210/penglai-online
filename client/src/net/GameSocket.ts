@@ -1,4 +1,6 @@
 import type { ClientMessage, ServerMessage } from "@penglai/shared";
+import { serverUrl } from "../game/clientConfig";
+import { getServerWebSocketUrl } from "./serverEndpoint";
 
 interface GameSocketHandlers {
   onOpen?: () => void;
@@ -34,16 +36,5 @@ export class GameSocket {
 }
 
 export function getGameSocketUrl(query: string, location: Location = window.location) {
-  const host = location.hostname;
-  if (isDevFrontend(location)) {
-    return `ws://${host}:8787${query}`;
-  }
-
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${location.host}/ws${query}`;
-}
-
-function isDevFrontend(location: Location) {
-  const host = location.hostname;
-  return host === "localhost" || host === "127.0.0.1" || location.port === "5173" || location.port === "5174";
+  return getServerWebSocketUrl(query, location, serverUrl);
 }

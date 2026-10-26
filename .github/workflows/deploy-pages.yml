@@ -1,0 +1,68 @@
+# Builds the game client and publishes it to GitHub Pages.
+# The game server is NOT hosted here (Pages is static only); it runs on the
+# classroom machine and must be reachable over https:// (e.g. Cloudflare Tunnel).
+#
+# One-time setup (repo Settings):
+#   1. Pages -> Build and deployment -> Source: "GitHub Actions".
+#   2. Secrets and variables -> Actions -> Variables:
+#        PENGLAI_SERVER_URL     e.g. https://penglai.example.org   (required)
+#        VITE_GOOGLE_CLIENT_ID  Google Web OAuth Client ID          (optional)
+#   3. On the server set AUTH_CORS_ORIGIN=https://<owner>.github.io
+#
+# Manual trigger only, so nothing is published by an ordinary push.
+name: Deploy client to GitHub Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require an https server URL
+        env:
+          PENGLAI_SERVER_URL: ${{ vars.PENGLAI_SERVER_URL }}
+        run: |
+          case "$PENGLAI_SERVER_URL" in
+            https://*) echo "Server URL: $PENGLAI_SERVER_URL" ;;
+            *) echo "::error::Set repo variable PENGLAI_SERVER_URL to an https:// URL (Pages is https; browsers block ws:// from it)."; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build client
+        run: npm --workspace client run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_SERVER_URL: ${{ vars.PENGLAI_SERVER_URL }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,3 +1,6 @@
+import { serverUrl } from "./game/clientConfig";
+import { getServerHttpBase } from "./net/serverEndpoint";
+
 interface AdminCharacter {
   saveSlot: string;
   characterName: string;
@@ -1023,12 +1026,7 @@ export function mountAdminDashboard(root: HTMLElement) {
 }
 
 function getAdminApiBase() {
-  const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1" || window.location.port === "5173" || window.location.port === "5174") {
-    return `http://${host}:8787`;
-  }
-
-  return window.location.origin;
+  return getServerHttpBase(window.location, serverUrl);
 }
 
 function escapeHtml(value: string) {
