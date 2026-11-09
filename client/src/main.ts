@@ -1,10 +1,12 @@
 import Phaser from "phaser";
 import { gameHeight, gameWidth } from "./game/constants";
 import { GameScene } from "./scenes/GameScene";
+import { AnpingScene } from "./scenes/AnpingScene";
 import { mountAdminDashboard } from "./adminDashboard";
 import "./styles.css";
 
 const root = document.querySelector<HTMLElement>("#app");
+export let game: Phaser.Game | undefined;
 
 if (!root) {
   throw new Error("Missing #app root.");
@@ -13,7 +15,7 @@ if (!root) {
 if (new URLSearchParams(window.location.search).has("admin")) {
   mountAdminDashboard(root);
 } else {
-  new Phaser.Game({
+  game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: root,
     width: gameWidth,
@@ -36,6 +38,6 @@ if (new URLSearchParams(window.location.search).has("admin")) {
       autoCenter: Phaser.Scale.CENTER_BOTH,
       autoRound: true
     },
-    scene: GameScene
+    scene: new URLSearchParams(window.location.search).has("online") ? GameScene : AnpingScene
   });
 }
