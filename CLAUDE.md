@@ -50,7 +50,7 @@ v1.1 依 Fable 5 紅隊審查修正了三處「規則與事實脫節」(侵權�
 - 動手前先把「怎樣算驗收」講清楚(可機器檢驗優先:哪個指令 exit 0、哪個 smoke 通過)。
 - 只動 `docs/` 或註解:不需跑任何閘。
 - 避免重複造機制:改東西前先看 `shared/`、既有 script、既有系統有沒有現成的。
-- 不侵權:新增地名/角色/招式/UI 文案,守 SPEC「避免 MapleStory、金庸、Harry Potter」;`audit:ui-text` 幫不上這塊,靠人工對照 SPEC。
+- 不侵權:新增地名/角色/招式/UI 文案與美術素材,守 SPEC「避免 MapleStory、金庸、Harry Potter」;P11 起同樣涵蓋軒轅劍、仙劍奇俠傳(只借演出語法,見 `docs/P11-ART-BIBLE-V2.md` §2 與 `docs/NAMING-AUDIT.md` 的禁用詞清單)。`audit:ui-text` 幫不上這塊,靠人工對照。
 
 ## 底線
 

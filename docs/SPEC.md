@@ -6,6 +6,8 @@
 
 It must avoid copyrighted MapleStory, Jin Yong, and Harry Potter names, characters, settings, spells, music, sprites, and UI.
 
+Since P11 (2026-11-13) the same rule covers the Xuan-Yuan Sword (軒轅劍) and Chinese Paladin (仙劍奇俠傳) series, which are used as presentation references only. See `docs/P11-ART-BIBLE-V2.md` section 2 and `docs/NAMING-AUDIT.md` for what may and may not be borrowed.
+
 ## v0.1 Success Criteria
 
 - Open a browser URL and enter a playable map.
